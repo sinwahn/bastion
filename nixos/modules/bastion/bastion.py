@@ -37,6 +37,9 @@
 #     Windows up with, in DIR's folder named by the module's word: the
 #     viosock folders, the exchange key's public half and the words file;
 #     presets/attach.sh puts them onto the stick
+#   bastion virtio-files DIR: the virtio driver folders for the devices of
+#     the VMs it makes, which the presets module repair installs, in
+#     DIR/virtio; presets/attach.sh puts them onto the stick
 #   bastion send FROM FILE TO (the words of this command and the next two
 #     are host-networks.nix's exchange's send, transfers and clean): one
 #     file from FROM's Outbox to TO's Inbox, or to the host's inbox when TO
@@ -3030,6 +3033,29 @@ def exchange_files_step(folder):
     return 0
 
 
+def virtio_files_step(folder):
+    """bastion virtio-files DIR: DIR/virtio made, holding the settings' store
+    folder of the virtio driver folders (bastion.nix's virtioDrivers: the
+    folders for the devices domain_xml defines) whole, copied file by file
+    without the store's read-only modes so the copy can be removed, as
+    exchange-files copies the viosock folder. presets/attach.sh puts DIR's
+    content onto the stick, where the presets module repair installs them.
+    A missing store folder stops it, nothing made; nothing is printed when
+    it is done."""
+    store = CFG["virtioDrivers"]
+    if not os.path.isdir(store):
+        print(f"STOP: {store} is not there: the drivers come with the rebuild.")
+        return 1
+    out = os.path.join(folder, "virtio")
+    os.makedirs(out)
+    for top, _, files in os.walk(store):
+        here = os.path.join(out, os.path.relpath(top, store))
+        os.makedirs(here, exist_ok=True)
+        for f in files:
+            shutil.copyfile(os.path.join(top, f), os.path.join(here, f))
+    return 0
+
+
 def main():
     with open(sys.argv[1]) as f:
         CFG.update(json.load(f))
@@ -3055,6 +3081,8 @@ def main():
         sys.exit(resolution_step(args[1]))
     elif args[0] == ex["exchange-files"] and len(args) == 2:
         sys.exit(exchange_files_step(args[1]))
+    elif args[0] == "virtio-files" and len(args) == 2:
+        sys.exit(virtio_files_step(args[1]))
     elif args[0] == ex["send"] and len(args) == 4:
         sys.exit(run_step(None, ex["step"], args)[0])
     elif args[0] == ex["transfers"] and len(args) <= 2:
@@ -3073,6 +3101,8 @@ def main():
               f"{command} resolution NAME, the size NAME's Windows is locked at, or follows\n"
               f"{command} {ex['exchange-files']} DIR, the files the presets module {ex['module']} sets the "
               f"exchange up with, into DIR/{ex['module']}\n"
+              f"{command} virtio-files DIR, the virtio driver folders the presets module repair installs, "
+              "into DIR/virtio\n"
               f"{command} {ex['send']} FROM FILE TO\n"
               f"{command} {ex['transfers']} [NAME]\n"
               f"{command} {ex['clean']} NAME\n"
