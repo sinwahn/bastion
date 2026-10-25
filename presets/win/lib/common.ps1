@@ -25,18 +25,20 @@ function Note([string]$s) {
   if ($s.Contains('FAILED')) { $global:BastionModuleState = 'failed' }
 }
 
-# RunLogged PROGRAM ARGUMENTS [OUTPUT]: runs one console program, waits for it and keeps what it prints.
-# It logs the command line before the program starts and its exit code after it, in decimal and in
-# hexadecimal; for a code other than 0 it logs FAILED and every line the program printed. It returns the
-# exit code, or $null when the program could not be started. OUTPUT, a [ref], gets the lines of its
-# standard output. An argument holding a space or a double quote is passed in double quotes.
+# RunLogged PROGRAM ARGUMENTS [OUTPUT] [SUCCESS]: runs one console program, waits for it and keeps what it
+# prints. It logs the command line before the program starts and its exit code after it, in decimal and in
+# hexadecimal; for a code that is not a success it logs FAILED and every line the program printed. It
+# returns the exit code, or $null when the program could not be started. OUTPUT, a [ref], gets the lines
+# of its standard output. SUCCESS, a hashtable, holds the exit codes the caller counts as success, each
+# with its meaning, logged after the code; without it 0 alone is success and no meaning is logged. An
+# argument holding a space or a double quote is passed in double quotes.
 # Sources (learn.microsoft.com, Windows PowerShell 5.1, PowerShell-Docs 5e0701d
 # reference/5.1/Microsoft.PowerShell.Management/Start-Process.md): ArgumentList joined with single spaces
 # 143-156, NoNewWindow 243-246, PassThru 262-265, RedirectStandardError 279-282, RedirectStandardOutput
 # 313-316, Wait 377-380 and 489-491 (the process and all its descendants), the Process object 464.
 # Get-Command -CommandType Application finds the program on PATH; Path.GetTempFileName makes the two
 # files; the hexadecimal form is the X8 format (dotnet docs standard-numeric-format-strings.md 306-310).
-function RunLogged([string]$Program, [string[]]$Arguments, [ref]$Output) {
+function RunLogged([string]$Program, [string[]]$Arguments, [ref]$Output, [hashtable]$Success) {
   $quoted = @()
   foreach ($a in @($Arguments | Where-Object { $null -ne $_ })) {
     if ($a -eq '' -or $a -match '[\s"]') { $quoted += ('"' + $a.Replace('"', '\"') + '"') } else { $quoted += $a }
@@ -56,7 +58,8 @@ function RunLogged([string]$Program, [string[]]$Arguments, [ref]$Output) {
     $printed = @(Get-Content -LiteralPath $out -ErrorAction SilentlyContinue)
     if ($null -ne $Output) { $Output.Value = $printed }
     $text = [string]$code + ' (0x' + ('{0:X8}' -f $code) + '): ' + $path
-    if ($code -eq 0) { Note ('exit ' + $text) }
+    if ($null -eq $Success -and $code -eq 0) { Note ('exit ' + $text) }
+    elseif ($null -ne $Success -and $Success.ContainsKey($code)) { Note ('exit ' + $text + ': ' + $Success[$code]) }
     else {
       Note ('FAILED, exit ' + $text)
       foreach ($l in ($printed + @(Get-Content -LiteralPath $err -ErrorAction SilentlyContinue))) { if ("$l".Trim()) { Note ('output: ' + $l) } }

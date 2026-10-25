@@ -32,7 +32,8 @@ fi
 # folder: the command's word read by its key exchange-files from /etc/bastion/exchange.json (bastion.nix
 # writes it from host-networks.nix); the folder's content goes onto the stick under win/
 ex=$(mktemp -d)
-trap 'rm -rf -- "$ex"' EXIT
+vio=""
+trap 'rm -rf -- "$ex" ${vio:+"$vio"}' EXIT
 if ! word=$(nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#jq -c jq -er '.["exchange-files"] // error("no exchange-files")' /etc/bastion/exchange.json 2>&1); then
   printf '%s\n' "$word"
   echo "The key exchange-files of /etc/bastion/exchange.json could not be read (the line above): the stick is built without the files of that command."
@@ -43,6 +44,16 @@ elif ! got=$(bastion "$word" "$ex" 2>&1); then
   echo "The stick is built without the files of bastion $word (the line above)."
   rm -rf -- "$ex"
   ex=""
+fi
+
+# the virtio driver folders for the VM's devices, from bastion into a temporary folder, for the presets
+# module repair (run.cmd repair); the folder's content, virtio/, goes onto the stick under win/
+vio=$(mktemp -d)
+if ! got=$(bastion virtio-files "$vio" 2>&1); then
+  printf '%s\n' "$got"
+  echo "The stick is built without the driver folders of bastion virtio-files (the line above)."
+  rm -rf -- "$vio"
+  vio=""
 fi
 
 # bring the installers listed in win/assets/installers.json to their vendors' current versions;
@@ -134,8 +145,9 @@ nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#curl nixpkg
   exit 0
 ' bash "$src/assets" || echo "looking-glass-host.exe not updated: curl, jq and 7-Zip could not be taken from nixpkgs (lines above)."
 
-# size the image to the contents of win/ and of the exchange's folder plus a margin, FAT32 with 512-byte clusters
-need=$(du -sbc "$src" ${ex:+"$ex"} 2>/dev/null | tail -n 1 | cut -f1); [ -n "$need" ] || need=0
+# size the image to the contents of win/, of the exchange's folder and of the driver folders plus a margin,
+# FAT32 with 512-byte clusters
+need=$(du -sbc "$src" ${ex:+"$ex"} ${vio:+"$vio"} 2>/dev/null | tail -n 1 | cut -f1); [ -n "$need" ] || need=0
 mb=$(( need/1048576 + 192 )); [ "$mb" -lt 64 ] && mb=64
 echo "Building a ${mb} MiB FAT32 stick from $src ..."
 
@@ -144,12 +156,13 @@ rm -f "$s"; truncate -s "${mb}M" "$s"
 echo "start=2048, type=c" | sfdisk -q "$s" || { echo "STOP: could not partition the stick image."; exit 1; }
 blocks=$(( (mb-1)*1024 ))
 nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#dosfstools nixpkgs#mtools -c sh -c '
-  img="$1"; src="$2"; blocks="$3"; res="$4"; ex="$5"
+  img="$1"; src="$2"; blocks="$3"; res="$4"; ex="$5"; vio="$6"
   mkfs.vfat -F 32 -s 1 --offset=2048 -n PRESETS "$img" "$blocks" >/dev/null || exit 1
   mcopy -s -i "$img@@1M" "$src" :: || exit 1
   if [ -n "$res" ]; then printf "%s\n" "$res" | mcopy -i "$img@@1M" - ::/win/resolution.txt || exit 1; fi
   if [ -n "$ex" ]; then mcopy -s -i "$img@@1M" "$ex"/* ::/win/ || exit 1; fi
-' sh "$s" "$src" "$blocks" "$res" "$ex" || { echo "STOP: could not make the stick image."; exit 1; }
+  if [ -n "$vio" ]; then mcopy -s -i "$img@@1M" "$vio"/* ::/win/ || exit 1; fi
+' sh "$s" "$src" "$blocks" "$res" "$ex" "$vio" || { echo "STOP: could not make the stick image."; exit 1; }
 sudo install -m 0644 "$s" "$img" || { echo "STOP: could not copy the image to the libvirt pool."; exit 1; }
 cat > ~/presets/stick.xml <<XML
 <disk type='file' device='disk'>

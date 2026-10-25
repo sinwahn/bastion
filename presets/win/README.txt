@@ -9,6 +9,13 @@ HOW TO RUN (inside the Windows workstation, from the PRESETS drive):
   run.cmd: run every module in order (asks for admin itself)
   run.cmd firefox: run only the firefox module
   run.cmd debloat updates: run just those
+  run.cmd repair: only on this word, never in a run without words: reinstalls
+    the virtio drivers of this Windows from the stick's win\virtio (no internet
+    needed), each installer of assets\installers.json that is on the stick,
+    whatever version is installed (asking first where the list says so), and
+    assets\nvidia-app.exe when it is there; Looking Glass is not touched. Run it
+    after attach.sh NAME has built the stick for this VM.
+    A driver goes onto a device only when no driver ranked as high is on it: a device whose driver was deleted gets it, a device on the same driver keeps it.
 The window stays open at the end. Full log: C:\ProgramData\Bastion\setup.log
 (THE LOG below says what each line means). When the administrator rights are
 not given, the window says so and waits for a key; nothing runs then.
@@ -37,9 +44,11 @@ LAYOUT:
      95-lg-host: install the Looking Glass host in its own installer window, only in a boot with no restart pending (see LOOKING GLASS below)
      96-resolution: lock the Looking Glass display at the size in resolution.txt, or let it follow the window
      97-exchange: the exchange of files between the VMs: the vsock driver, vstbridge, OpenSSH Server, the account exchange (only the host's key logs into it, SFTP only), C:\Exchange with Inbox and Outbox; ends at once in a VM with no exchange device (started outside bastion, or a template)
+     99-repair: only by run.cmd repair: the virtio drivers from virtio\ (viostor for the disk, NetKVM for the network card, qxldod for the QXL video, which the virtio ISO holds for Windows 10 alone), the installers on the stick and the NVIDIA app, reinstalled
   assets\: the installers; attach.sh keeps the listed ones current and brings looking-glass-host.exe, the others are put here by hand (see below)
   resolution.txt: on the stick only, written by attach.sh for the VM it plugs into
   exchange\: on the stick only, written by attach.sh from bastion exchange-files: the driver files, the host's public key and exchange.json for 97-exchange
+  virtio\: on the stick only, written by attach.sh from bastion virtio-files: the virtio driver folders for 99-repair
 
 ASSETS in assets\ (these exact names):
   attach.sh keeps these current, as listed in assets\installers.json:
@@ -68,7 +77,9 @@ every failure line holds the word FAILED and Windows' own message.
 - "run: PROGRAM ARGUMENTS", then "exit N (0x...)": a console program (reg,
 diskpart, nvidia-smi, certutil, pnputil, icacls, vstbridge) and its exit
 code. For a code other than 0 the line is "FAILED, exit N (0x...)", followed
-by each line the program printed, as "output: ...".
+by each line the program printed, as "output: ...". In 99-repair pnputil's
+0, 259 and 3010 count as success: "exit N (0x...)" is followed by the code's
+meaning.
 - "start: INSTALLER ARGUMENTS", then "exit N (0x...)" or "FAILED, exit N
 (0x...)": an installer, started in its own window as always, and its exit
 code. A program that cannot be started: "FAILED, could not start ...".

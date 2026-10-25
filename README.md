@@ -152,6 +152,7 @@ On a summary screen: Enter goes on.
 - `bastion console NAME`: the console window of NAME.
 - `bastion resolution NAME`: the size NAME's Windows is locked at, or follows.
 - `bastion exchange-files DIR`: the files the presets module exchange sets the exchange up with, into DIR/exchange.
+- `bastion virtio-files DIR`: the virtio driver folders the presets module repair installs, into DIR/virtio.
 - `bastion send FROM FILE TO`: one file from FROM's Outbox to TO's Inbox, or to the host's inbox when TO is the host's name.
 - `bastion transfers [NAME]`: broker-vm's log, all of it or the lines naming NAME.
 - `bastion clean NAME`: NAME's kept copies in broker-vm deleted, and the files of NAME's stopped sends on the host, each logged first.
@@ -222,13 +223,15 @@ T is win10 or win11.
    - `run.cmd`: every module in order.
    - `run.cmd firefox`: only the firefox module.
    - `run.cmd debloat updates`: only those two.
+   - `run.cmd repair`: only on this word, never in a run without words. It reinstalls the virtio drivers of that Windows from the stick (viostor for the disk, NetKVM for the network card, qxldod for the QXL video on Windows 10; no internet needed), each installer of assets/installers.json that is on the stick whatever version is installed, and nvidia-app.exe when it is there. Looking Glass is not touched. Run it after `attach.sh NAME` has built the stick for that VM.
+   - A driver goes onto a device only when no driver ranked as high is on it: a device whose driver was deleted gets it, a device on the same driver keeps it.
 4. When done, unplug the stick on the host:
 
    ```
    virsh -c qemu:///system detach-disk NAME sdz --live
    ```
 
-The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange.
+The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
 The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
 
 Files placed by hand in ~/presets/win/assets, under these exact names:

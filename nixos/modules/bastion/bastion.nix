@@ -15,6 +15,9 @@
 #   exchange-files copies for the presets module of the exchange, and the
 #   exchange's words of host-networks.nix written as JSON to
 #   /etc/<command>/exchange.json, where presets/attach.sh reads them;
+# - the store folder of the virtio driver folders for the devices of the
+#   program's VMs, which the program's virtio-files copies for the presets
+#   module repair;
 # - the seven steps that need root, which the program runs through sudo:
 #     networks-write  writes networks.json and has networks-apply and
 #                     firewall-apply apply it;
@@ -92,6 +95,20 @@ let
   viosock = pkgs.runCommand "${pkgs.virtio-win.name}-viosock" { nativeBuildInputs = [ pkgs.libarchive ]; } ''
     mkdir -p $out
     bsdtar -xf ${pkgs.virtio-win.src} -C $out viosock
+  '';
+  # The driver folders for the devices of the program's VMs (bastion.py's
+  # domain_xml), from the extracted virtio-win tree nixpkgs builds, its
+  # output the ISO's root (nixpkgs pkgs/by-name/vi/virtio-win/package.nix
+  # 21 and 26-27); each folder's name and its w10/amd64 and w11/amd64
+  # subfolders as the ISO's own file listing names them: viostor for the
+  # disk on bus virtio, NetKVM for the network card of model virtio, qxldod
+  # for the video of model qxl, which the ISO holds for w10 alone. The
+  # program's virtio-files copies it whole for the presets module repair.
+  virtioDrivers = pkgs.runCommand "${pkgs.virtio-win.name}-drivers" { } ''
+    for d in viostor/w10/amd64 viostor/w11/amd64 NetKVM/w10/amd64 NetKVM/w11/amd64 qxldod/w10/amd64; do
+      mkdir -p "$out/$d"
+      cp -R ${pkgs.virtio-win}/"$d"/. "$out/$d/"
+    done
   '';
 
   # The templates. disk: GiB, the size of the template's empty disk, also the
@@ -919,6 +936,9 @@ let
     exchange = hostNetworks.exchange;
     # The store folder of the viosock files, which exchange-files copies.
     viosock = "${viosock}";
+    # The store folder of the virtio driver folders, which virtio-files
+    # copies.
+    virtioDrivers = "${virtioDrivers}";
     nameMax = ifnamsiz - 1;
     # libvirt's own prefixes for cables (docs/formatdomain.rst).
     refusedPrefixes = [ "vnet" "vif" "macvtap" "macvlan" ];
