@@ -1,0 +1,9 @@
+# every text file has LF endings; the Windows guest scripts (.cmd, .ps1, .vbs) are stored byte for byte; disk images, installers and certificate files are binary
+* text eol=lf
+*.cmd -text
+*.ps1 -text
+*.vbs -text
+*.img binary
+*.exe binary
+*.p7b binary
+*.pem binary

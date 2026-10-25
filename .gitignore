@@ -1,0 +1,15 @@
+# the files of one machine: they stand only in that machine's private clone (README.md)
+nixos/local.nix
+nixos/hosts/bastion/
+nixos/modules/isolation/stations.nix
+nixos/modules/isolation/uplinks.nix
+presets/sync/sync.conf
+presets/win/assets/roots.p7b
+presets/win/assets/looking-glass-host.exe
+# generated files
+presets/win/assets/*.exe
+presets/win/assets/*.version
+presets/win/assets/*.p7b
+presets/presets.img
+presets/stick.xml
+__pycache__/

@@ -1,0 +1,3 @@
+# One line per host. Selected by plain `hostname`, cut at the first dot. Values: nixos=<dir of the nixos flake repository> presets=<dir of presets> sudo=<yes|no, whether the nixos dir needs root> rebuild=<flake attribute to rebuild, or no>
+bastion nixos=/etc/nixos presets=~/presets sudo=yes rebuild=bastion
+mirror nixos=MIRROR/nixos presets=MIRROR/presets sudo=no rebuild=no

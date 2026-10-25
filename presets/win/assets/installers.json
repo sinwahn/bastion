@@ -1,0 +1,62 @@
+{
+  "curl": {
+    "connect-timeout": 15,
+    "speed-limit": 10000,
+    "speed-time": 60
+  },
+  "installers": [
+    {
+      "file": "nvidia-driver.exe",
+      "name": "NVIDIA Game Ready driver",
+      "ask": false,
+      "installed": {
+        "kind": "program",
+        "program": "nvidia-smi",
+        "args": ["--query-gpu=driver_version", "--format=csv,noheader"]
+      },
+      "switches": ["-s", "-noreboot", "-clean"],
+      "restart": true,
+      "hardware": {
+        "vendor": "10DE",
+        "class": "03"
+      },
+      "check": "https://gfwsl.geforce.com/nvidia_web_services/controller.gfeclientcontent.NG.php/com.nvidia.services.GFEClientContent_NG.getDispDrvrByDevid/",
+      "request": "{dIDa: [$hardware[] | .device + \"_\" + .vendor], osC: \"10.0\", osB: \"19045\", is6: \"1\", lg: \"1033\", iLp: \"1\", prvMd: \"0\", gcV: \"3.28.0.417\", gIsB: \"0\", dch: \"1\", upCRD: \"0\", isCRD: \"0\"} | tojson | @uri",
+      "version": ".DriverAttributes.Version",
+      "download": ".DriverAttributes.DownloadURLAdmin",
+      "inf": "Display.Driver/*.inf"
+    },
+    {
+      "file": "firefox-setup.exe",
+      "name": "Firefox",
+      "ask": false,
+      "installed": {
+        "kind": "uninstall",
+        "displayName": "Mozilla Firefox (*"
+      },
+      "switches": ["/S"],
+      "check": "https://product-details.mozilla.org/1.0/firefox_versions.json",
+      "version": ".LATEST_FIREFOX_VERSION",
+      "download": "\"https://archive.mozilla.org/pub/firefox/releases/\\($v)/win64/en-US/Firefox%20Setup%20\\($v).exe\"",
+      "algorithm": "sha512",
+      "sums": "($url | split(\"/\\($v)/\")[0]) + \"/\\($v)/SHA512SUMS\"",
+      "line": "$url | split(\"/\\($v)/\")[1] | gsub(\"%20\"; \" \")"
+    },
+    {
+      "file": "system-informer-setup.exe",
+      "name": "System Informer",
+      "ask": true,
+      "installed": {
+        "kind": "uninstall",
+        "displayName": "System Informer"
+      },
+      "prefix": "v",
+      "switches": ["-install", "-silent", "-nostart"],
+      "check": "https://api.github.com/repos/winsiderss/systeminformer/releases/latest",
+      "version": ".tag_name",
+      "download": ".assets[] | select(.name | endswith(\"-release-setup.exe\")) | .browser_download_url",
+      "algorithm": "sha256",
+      "hash": ".assets[] | select(.browser_download_url == $url) | .digest | ltrimstr(\"sha256:\")"
+    }
+  ]
+}
