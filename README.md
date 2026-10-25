@@ -1,82 +1,320 @@
 # Bastion
 
-## What this is
+The NixOS configuration of a host named Bastion, its bastion tool, and the Windows presets its VMs run, without the values of any one machine.
 
-The NixOS configuration of a host named Bastion and the Windows presets its VMs run, without the values of any one machine.
+## 1. First setup of a machine
 
-- nixos/ is the NixOS configuration: a flake whose nixosConfigurations.bastion is the host, with its microVMs and its workstations.
-- presets/ holds what the Windows workstations run: the Windows setup in presets/win, attach.sh, which builds the presets disk from presets/win for a workstation, and presets/sync, which makes the configuration and the presets of one machine equal to another's.
+On the machine, with NixOS installed. REPO is this repository's address; PRIVATE is the folder of the machine's private clone.
 
-This repository holds no value of a machine: no user name, key or disk id, no model or id of its hardware, no name, MAC or address of its VMs, no time zone or place. A machine's own configuration is a private clone of this repository with that machine's files added and committed there (below). This repository alone does not build: the flake imports files that stand only in a machine's private clone.
+1. Clone this repository as the machine's private clone:
 
-## Layout
+   ```
+   git clone REPO bastion-configured-private
+   ```
 
-- nixos/flake.nix, nixos/flake.lock: the flake and its pinned inputs.
-- nixos/local.example.nix: the example of nixos/local.nix (below).
-- nixos/hosts/example/: the example of a machine's own folder, nixos/hosts/bastion/ (below).
-- nixos/modules/host/: the host itself, one file per subject (boot, networking, desktop, users, virtualization, VFIO, Looking Glass and others).
-- nixos/modules/isolation/: the microVMs and their networks; net.nix is the Wi-Fi VM; stations.example.nix and uplinks.example.nix are the examples of stations.nix and uplinks.nix (below).
-- nixos/modules/bastion/: the bastion tool.
-- presets/attach.sh: builds the presets disk for a workstation and keeps the downloaded installers current.
-- presets/win/: the Windows setup; presets/win/README.txt says how it runs.
-- presets/sync/: sync.sh, which carries the nixos repository and the presets between two machines; presets/sync/README.txt has the steps.
+2. In bastion-configured-private, make the machine's files from the examples:
+   - Copy nixos/local.example.nix to nixos/local.nix.
+   - Write the machine's one normal user in place of USER.
+   - Make the host's key for the Wi-Fi VM:
 
-## A machine's private clone
+     ```
+     sudo ssh-keygen -t ed25519 -f /root/.ssh/wifi-vm
+     ```
 
-A machine's own configuration is a git clone of this repository, kept by the machine's owner and never published, with the machine's files added and committed in it. Its nixos/ folder is what is copied to /etc/nixos (below). .gitignore lists the machine's files, so they are never added to this repository; in the private clone they are added once with git add -f and committed:
+   - Write the line of /root/.ssh/wifi-vm.pub in place of HOSTKEY.
+   - Copy nixos/hosts/example/ to nixos/hosts/bastion/.
+   - Write the machine's values in place of BOARD, TIMEZONE, LOCALE, KEYMAP, COUNTRY and the zeros of vfio-pci.ids.
+   - Put the hardware-configuration.nix that nixos-generate-config wrote at the install into nixos/hosts/bastion/.
+   - Add to nixos/hosts/bastion/ what the machine's disks and install need: mount options, the folders of the VM disks, its swap, its system.stateVersion.
+   - Copy nixos/modules/isolation/stations.example.nix to stations.nix beside it, and write the machine's stations.
+   - Keep the entry without a mac (the host) and the entries tpl-win10 and tpl-win11 (bastion template reads their mac).
+   - Copy nixos/modules/isolation/uplinks.example.nix to uplinks.nix beside it, and write the machine's cards.
+   - The card values are read from /sys/bus/pci/devices and /sys/bus/usb/devices.
+   - Copy presets/sync/sync.conf.example to presets/sync/sync.conf: one line per host, as its first line says.
+3. Commit them in the private clone only. .gitignore lists them, so they are added with -f:
 
-- nixos/local.nix: the user name of the machine's one normal user, and hostKey, the public half of the key the host uses for the Wi-Fi VM. Its example is nixos/local.example.nix: copy it to nixos/local.nix and write the two values in place of USER and HOSTKEY, as its comment lines say. The flake hands it to every module as local.
-- nixos/hosts/bastion/: the machine's own folder; the flake imports its default.nix. It holds the hardware scan, hardware-configuration.nix, which nixos-generate-config writes when NixOS is installed (the disk ids among it), and default.nix, which imports the hardware scan, the machine's board module of nixos-hardware and any module of that machine alone, and sets the time zone, locale and keyboard, the ids of the card a VM takes and the country of the Wi-Fi radio rules. Its example is nixos/hosts/example/: copy it to nixos/hosts/bastion/ and write the machine's values in place of the words in capitals.
-- nixos/modules/isolation/stations.nix: every machine behind the firewall VM, with its address, its MAC and its internet rule. Its example is nixos/modules/isolation/stations.example.nix.
-- nixos/modules/isolation/uplinks.nix: the host's uplinks, with the PCI address and drivers of its Wi-Fi card and the USB ids of its ethernet card. Its example is nixos/modules/isolation/uplinks.example.nix.
-- presets/sync/sync.conf: one line per machine for sync.sh. Its example is presets/sync/sync.conf.example: copy it to presets/sync/sync.conf; on its mirror line, write the other machine's host name in place of mirror and the folder that holds its nixos and presets folders in place of MIRROR.
-- presets/win/assets/roots.p7b and presets/win/assets/looking-glass-host.exe: the CA bundle and the Looking Glass host installer (below).
+   ```
+   git add -f nixos/local.nix nixos/hosts/bastion/ nixos/modules/isolation/stations.nix nixos/modules/isolation/uplinks.nix presets/sync/sync.conf
+   git commit -m "<what changed>"
+   ```
 
-The private clone's own commits change only these files, which this repository does not hold, so taking this repository's updates never meets a change of the same lines.
+4. Replace the files of /etc/nixos with the private clone's nixos/, keeping /etc/nixos/.git. On a new machine, make that repository first with `sudo git init /etc/nixos`. The first commit keeps what was there; it may say nothing to commit:
 
-### Taking this repository's updates
+   ```
+   sudo git -C /etc/nixos add -A
+   sudo git -C /etc/nixos commit -m "before the update"
+   sudo find /etc/nixos -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+   sudo cp -r PRIVATE/nixos/. /etc/nixos/
+   ```
 
-In the private clone, git pull takes this repository's new commits. A plain git pull only fast-forwards (git pull's default) and stops in the private clone, whose own commit this repository does not hold; so it is run with --rebase, which puts the machine's own commit back on top of this repository's new commits:
+5. Add every file to /etc/nixos's own repository:
 
-    git pull --rebase
+   ```
+   sudo git -C /etc/nixos add -A
+   ```
 
-git pull --no-rebase merges them instead.
+6. Build the system the next start boots:
 
-## Files placed by hand in presets/win/assets
+   ```
+   sudo nixos-rebuild boot --flake /etc/nixos#bastion
+   ```
 
-attach.sh brings the installers listed in presets/win/assets/installers.json and the Looking Glass host installer. These are placed by hand, under these exact names, as presets/win/README.txt lists them:
+7. Restart:
 
-- roots.p7b: the CA bundle (below).
-- nvidia-app.exe: only on the VM that should have the NVIDIA app; adds the NVIDIA app on top of the driver.
+   ```
+   reboot
+   ```
 
-None of them is committed in this repository; roots.p7b and looking-glass-host.exe are committed in the private clone. An asset that is absent skips its install step.
+8. Copy the private clone's presets/ over ~/presets. Files already there that the clone does not hold, such as the downloaded installers and the VM copies in ~/presets/bastion, stay:
 
-## roots.p7b
+   ```
+   mkdir -p ~/presets
+   cp -r PRIVATE/presets/. ~/presets/
+   chmod +x ~/presets/attach.sh ~/presets/sync/sync.sh
+   ```
 
-roots.p7b is a PKCS#7 bundle of root certificates. presets/win/modules/80-firefox.ps1 imports it into Windows' Root and CA stores.
+## 2. Updating
 
-It is there because a Windows without internet at its first start lacks these root certificates, so the automatic Firefox installation met certificate errors.
+1. In the private clone (--rebase keeps the machine's own commit on top of this repository's new commits):
 
-A machine makes its copy from Mozilla's list of root certificates as curl publishes it:
+   ```
+   git pull --rebase
+   ```
 
-1. Download cacert.pem from https://curl.se/ca/cacert.pem (curl's page https://curl.se/docs/caextract.html: "The Mozilla CA certificate store in PEM format").
-2. Turn it into a PKCS#7 file in DER form (https://docs.openssl.org/3.5/man1/openssl-crl2pkcs7/: -nocrl, -certfile, -outform DER, -out):
+2. Do steps 4 to 8 of the first setup.
 
-       openssl crl2pkcs7 -nocrl -certfile cacert.pem -outform DER -out roots.p7b
+## 3. The bastion tool
 
-3. Place roots.p7b in presets/win/assets of the private clone.
+Open the status screen:
 
-## Applying it on the host
+```
+bastion
+```
 
-1. Copy the files of the private clone's nixos/ over /etc/nixos, as root. /etc/nixos keeps its own .git.
-2. Add every file to /etc/nixos's own repository, which stays on the host:
+Keys of the status screen:
 
-       sudo git -C /etc/nixos add -A
+- v: VMs
+- n: networks
+- d: devices
+- l: looking-glass
+- b: the broker (the file exchange)
+- r: read again
+- q: quit
 
-3. Build the new system as the one the next start boots:
+In every other screen, escape goes back. In every section, r reads again.
+On a screen of several picks: space or Enter picks and unpicks, ctrl+s goes on.
+On a summary screen: Enter goes on.
 
-       sudo nixos-rebuild boot --flake /etc/nixos#bastion
+### v: VMs
 
-4. Restart:
+- The table: name, state, cores, RAM, disk, graphics, network, internet rule.
+- n: new VM (section 4).
+- copy firmware and TPM: each VM's firmware variables and TPM state into ~/presets/bastion/state; a running VM is skipped.
+- restore: the VMs saved in ~/presets/bastion that are not defined now, definitions only or whole.
+- A VM's row opens its screen, with these actions:
+  - start
+  - first start (no network for that start)
+  - shut down
+  - open its window
+  - console
+  - cores, fast cores first, RAM, graphics: take effect at the VM's next start
+  - disk: bigger only, never smaller
+  - internet rule: open, listed or none; takes effect at once
+  - retire: its disk, definition, firmware variables and TPM state move into /var/lib/libvirt/images/retired/NAME; nothing is deleted
 
-       reboot
+### n: networks
+
+- A network's line: VMs reach each other, yes or no.
+- A VM's line: internet rule, move to a network, path check.
+- new network.
+
+### d: devices
+
+- The host's graphics devices.
+
+### l: looking-glass
+
+- A VM's line (a VM with a card): glass on or off; resolution, follows the window or locked at a size.
+- release key, full screen: the looking-glass window's settings.
+
+### b: the broker
+
+- See section 6.
+
+### The command line
+
+- `bastion`: the status screen, then the VMs, the networks, the devices, looking-glass and the broker.
+- `bastion list`: every VM and template, its state, its disk, its card.
+- `bastion template T`: Windows Setup in the template tpl-T (T: win10 or win11).
+- `bastion seal T`: after Sysprep: tpl-T sealed, bastion makes VMs from it.
+- `bastion first NAME`: the first start of NAME, without network.
+- `bastion start NAME`: starts NAME and shows it.
+- `bastion console NAME`: the console window of NAME.
+- `bastion resolution NAME`: the size NAME's Windows is locked at, or follows.
+- `bastion exchange-files DIR`: the files the presets module exchange sets the exchange up with, into DIR/exchange.
+- `bastion send FROM FILE TO`: one file from FROM's Outbox to TO's Inbox, or to the host's inbox when TO is the host's name.
+- `bastion transfers [NAME]`: broker-vm's log, all of it or the lines naming NAME.
+- `bastion clean NAME`: NAME's kept copies in broker-vm deleted, and the files of NAME's stopped sends on the host, each logged first.
+
+template, first and start run until the VM is off; meanwhile the host does not go to sleep by itself. Never close the lid then.
+
+## 4. A Windows VM from nothing to running
+
+T is win10 or win11.
+
+1. Download the Windows .iso into ~/Downloads. Its name holds windows_10 for win10, windows_11 for win11; only one such .iso.
+2. Start Windows Setup in the template:
+
+   ```
+   bastion template T
+   ```
+
+   It copies the .iso in place (the download is removed), defines tpl-T, opens its console, starts it with Space pressed for the CD prompt, and waits until it is off.
+3. In the console, install Windows.
+4. Run Sysprep in it. tpl-T must end shut off.
+5. Seal the template:
+
+   ```
+   bastion seal T
+   ```
+
+   It checks that tpl-T is shut off with Windows installed, marks it sealed, and undefines it, keeping its firmware variables and TPM state.
+6. Make a VM from it:
+
+   ```
+   bastion
+   ```
+
+   Press v, then n, and answer: 1. Name, 2. Windows (T), 3. Cores, 3b. Fast cores first?, 4. RAM, 5. Disk, 6. Graphics, 7. Network, Internet.
+   At 8, the summary, press Enter: make it.
+7. The first start, without network: v, the VM, first start (no network for that start), Enter: start it. Or:
+
+   ```
+   bastion first NAME
+   ```
+
+   Its console opens. The offline first-boot screens are done by hand.
+8. Every later start: v, the VM, start, Enter: start it. Or:
+
+   ```
+   bastion start NAME
+   ```
+
+   The looking-glass window opens for a VM with glass on, the console otherwise.
+   Never close the lid while it runs. Shut Windows down to end it.
+9. The console of any VM: v, the VM, console. Or:
+
+   ```
+   bastion console NAME
+   ```
+
+## 5. Attach and run the presets
+
+1. Start the VM (section 4).
+2. On the host, build the PRESETS stick from ~/presets/win and plug it into the VM:
+
+   ```
+   ~/presets/attach.sh NAME
+   ```
+
+   Without NAME it shows a numbered list of the VMs: type the number.
+3. In Windows, open the PRESETS drive and run win\run.cmd (it asks for admin itself):
+   - `run.cmd`: every module in order.
+   - `run.cmd firefox`: only the firefox module.
+   - `run.cmd debloat updates`: only those two.
+4. When done, unplug the stick on the host:
+
+   ```
+   virsh -c qemu:///system detach-disk NAME sdz --live
+   ```
+
+The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange.
+The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
+
+Files placed by hand in ~/presets/win/assets, under these exact names:
+
+- roots.p7b: the CA bundle. Download https://curl.se/ca/cacert.pem, then:
+
+  ```
+  openssl crl2pkcs7 -nocrl -certfile cacert.pem -outform DER -out roots.p7b
+  ```
+
+- nvidia-app.exe: only on the VM that should have the NVIDIA app.
+
+An absent file skips its install step. attach.sh brings the other installers itself.
+
+## 6. The file exchange
+
+Routes, in bastion: b, the VM's line, sends to; pick the VMs and the host it may send to; ctrl+s saves.
+
+Each VM's setup, once:
+
+1. Start it with bastion start NAME. A VM started outside bastion has no exchange device.
+2. On the host:
+
+   ```
+   ~/presets/attach.sh NAME
+   ```
+
+3. In Windows, from the PRESETS drive's win folder:
+
+   ```
+   run.cmd exchange
+   ```
+
+A VM without internet needs it for that run: in bastion set its internet rule to open (v, the VM, internet rule), run run.cmd exchange in the VM, then set the rule back the same way.
+
+In Windows, a file to send goes into C:\Exchange\Outbox; a file sent to the VM arrives in C:\Exchange\Inbox.
+The host's inbox is /var/lib/exchange/inbox.
+
+Send one file (TO: a VM, or the host's name, its entry without a mac in stations.nix):
+
+```
+bastion send FROM FILE TO
+```
+
+Or in bastion: b, the VM, send a file, the file, the destination.
+Or b, send a file, the VM, the file, the destination.
+
+Transfers, broker-vm's log, all of it or the lines naming NAME:
+
+```
+bastion transfers
+bastion transfers NAME
+```
+
+Or b, transfers; or b, the VM, transfers.
+
+Clean NAME's kept copies in broker-vm, and the files of NAME's stopped sends on the host:
+
+```
+bastion clean NAME
+```
+
+Or b, the VM, clean its kept copies, then clean its kept copies again.
+
+## 7. gate on the host
+
+UPLINK is an entry of uplinks.nix (wifi and ethernet in the example).
+
+- `gate status`: wifi-vm, firewall-vm, broker-vm, the switches and their cables, the uplinks and the way out, seen from the host.
+- `gate UPLINK`, for the uplink of kind "vm": wifi-vm's Wi-Fi screen (nmtui), then allow UPLINK: it may carry the host's route and DNS.
+- `gate UPLINK`, for an uplink of kind "ethernet": allow UPLINK: it may carry the host's route and DNS, by itself whenever plugged in.
+- `gate UPLINK off`: withdraw UPLINK: no route or DNS of the host over it; its link stays up.
+- `gate prefer UPLINK`: UPLINK carries the traffic when more than one is allowed and up.
+- `gate log [NAME]`: firewall-vm's log of NAME (or of all): names asked, connections made and refused.
+- `gate`: this list.
+
+## 8. The private files
+
+They stand only in the machine's private clone.
+
+| Private file | Made from |
+|---|---|
+| nixos/local.nix | nixos/local.example.nix |
+| nixos/hosts/bastion/ | nixos/hosts/example/ |
+| nixos/modules/isolation/stations.nix | nixos/modules/isolation/stations.example.nix |
+| nixos/modules/isolation/uplinks.nix | nixos/modules/isolation/uplinks.example.nix |
+| presets/sync/sync.conf | presets/sync/sync.conf.example |
+| presets/win/assets/roots.p7b | the openssl line in section 5 |
+| presets/win/assets/looking-glass-host.exe | brought by attach.sh |
