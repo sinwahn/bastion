@@ -14,23 +14,32 @@ function Dark($root, [string]$p) {
   SetV $root $t 'AppsUseLightTheme' 0
   SetV $root $t 'SystemUsesLightTheme' 0
 }
+Note '[shell] this user: Explorer prefs and dark mode'
 ExplorerPrefs $HKCU ''
 Dark $HKCU ''
 $unwanted = @('3D Objects','Contacts','Favorites','Links','Searches')
-foreach ($f in $unwanted) { $d = Join-Path $env:USERPROFILE $f; if (Test-Path -LiteralPath $d) { try { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop; Note ("removed folder " + $f) } catch {} } }
+foreach ($f in $unwanted) {
+  $d = Join-Path $env:USERPROFILE $f
+  if (Test-Path -LiteralPath $d) {
+    try { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop; Note ('[shell] removed folder ' + $f) }
+    catch { Note ('[shell] FAILED to remove folder ' + $f + ': ' + $_.Exception.Message) }
+  }
+}
 $hive = 'C:\Users\Default\NTUSER.DAT'
-& reg.exe load 'HKU\BastionDef' $hive | Out-Null
-if ($LASTEXITCODE -eq 0) {
+Note '[shell] default profile: loading its registry hive'
+if ((RunLogged 'reg.exe' @('load', 'HKU\BastionDef', $hive)) -eq 0) {
   ExplorerPrefs $HKU 'BastionDef\'
   Dark $HKU 'BastionDef\'
   $rd = ($unwanted | ForEach-Object { 'rd /s /q "%USERPROFILE%\' + $_ + '"' }) -join ' & '
   SetV $HKU 'BastionDef\Software\Microsoft\Windows\CurrentVersion\RunOnce' 'BastionFolders' ('cmd /c ' + $rd) 'String'
-  [GC]::Collect(); [GC]::WaitForPendingFinalizers(); & reg.exe unload 'HKU\BastionDef' | Out-Null
-  Note 'default profile: explorer + dark set'
-} else { Note 'default profile: could not load (this user only)' }
+  [GC]::Collect(); [GC]::WaitForPendingFinalizers(); [void](RunLogged 'reg.exe' @('unload', 'HKU\BastionDef'))
+  Note '[shell] default profile: explorer + dark set'
+} else { Note '[shell] default profile: could not load (this user only)' }
 # no grouping
+Note '[shell] no grouping in folders'
 SetV $HKCU 'Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell' 'GroupView' 0
 # This PC: remove Desktop/Documents/Music/3D Objects nodes (keep Downloads/Pictures/Videos)
+Note '[shell] This PC: removing its folder nodes, Downloads, Pictures and Videos stay'
 $remCLSID = @{
   '{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}' = 'Desktop'
   '{d3162b92-9365-467a-956b-92703aca08af}' = 'Documents'
@@ -43,11 +52,13 @@ foreach ($ns in @('SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer
   foreach ($c in $remCLSID.Keys) { DelTree $HKLM ($ns + '\' + $c) ('This PC ' + $remCLSID[$c]) }
 }
 # Spotlight desktop off + Learn-about icon
+Note '[shell] Spotlight collection off, Learn-about icon hidden'
 SetV $HKCU 'Software\Policies\Microsoft\Windows\CloudContent' 'DisableSpotlightCollectionOnDesktop' 1
 SetV $HKCU 'Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightFeatures' 1
 SetV $HKCU 'Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' '{2cc5ca98-6485-489a-920e-b3e88a6ccce3}' 1
 SetV $HKCU 'Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartMenu' '{2cc5ca98-6485-489a-920e-b3e88a6ccce3}' 1
 # search box + indexer + Meet Now
+Note '[shell] search box, indexer and Meet Now off'
 SetV $HKCU 'Software\Microsoft\Windows\CurrentVersion\Search' 'SearchboxTaskbarMode' 0
 SetV $HKLM 'SYSTEM\CurrentControlSet\Services\WSearch' 'Start' 4
 SetV $HKCU 'Software\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'HideSCAMeetNow' 1

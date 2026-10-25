@@ -3,16 +3,137 @@ $ErrorActionPreference = 'Continue'
 $HKLM = [Microsoft.Win32.Registry]::LocalMachine
 $HKCU = [Microsoft.Win32.Registry]::CurrentUser
 $HKU  = [Microsoft.Win32.Registry]::Users
-$BastionDir = 'C:\ProgramData\Bastion'
+# C:\ProgramData\Bastion: Windows' own ProgramData folder, C:\ProgramData on every Windows.
+$BastionDir = Join-Path $env:ProgramData 'Bastion'
 try { New-Item -ItemType Directory -Force -Path $BastionDir | Out-Null } catch {}
 if ($env:BASTION_ROOT) { $BastionRoot = $env:BASTION_ROOT } else { $BastionRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
 $BastionAssets = Join-Path $BastionRoot 'assets'
 $BastionRestart = Join-Path $BastionDir 'restart'
 
+# A line on the screen and in setup.log. When setup.log cannot be written, the screen says so once per
+# run ($global:BastionLogFailed, cleared by run.ps1 at its start). A line holding FAILED marks the module
+# that is running as failed in run.ps1's summary ($global:BastionModuleState).
 function Note([string]$s) {
   Write-Host $s
-  try { Add-Content -LiteralPath (Join-Path $BastionDir 'setup.log') -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + $s) -Encoding ASCII } catch {}
+  try { Add-Content -LiteralPath (Join-Path $BastionDir 'setup.log') -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $s) -Encoding ASCII -ErrorAction Stop }
+  catch {
+    if (-not $global:BastionLogFailed) {
+      $global:BastionLogFailed = $true
+      Write-Host ('setup.log could not be written: ' + $_.Exception.Message)
+    }
+  }
+  if ($s.Contains('FAILED')) { $global:BastionModuleState = 'failed' }
 }
+
+# RunLogged PROGRAM ARGUMENTS [OUTPUT]: runs one console program, waits for it and keeps what it prints.
+# It logs the command line before the program starts and its exit code after it, in decimal and in
+# hexadecimal; for a code other than 0 it logs FAILED and every line the program printed. It returns the
+# exit code, or $null when the program could not be started. OUTPUT, a [ref], gets the lines of its
+# standard output. An argument holding a space or a double quote is passed in double quotes.
+# Sources (learn.microsoft.com, Windows PowerShell 5.1, PowerShell-Docs 5e0701d
+# reference/5.1/Microsoft.PowerShell.Management/Start-Process.md): ArgumentList joined with single spaces
+# 143-156, NoNewWindow 243-246, PassThru 262-265, RedirectStandardError 279-282, RedirectStandardOutput
+# 313-316, Wait 377-380 and 489-491 (the process and all its descendants), the Process object 464.
+# Get-Command -CommandType Application finds the program on PATH; Path.GetTempFileName makes the two
+# files; the hexadecimal form is the X8 format (dotnet docs standard-numeric-format-strings.md 306-310).
+function RunLogged([string]$Program, [string[]]$Arguments, [ref]$Output) {
+  $quoted = @()
+  foreach ($a in @($Arguments | Where-Object { $null -ne $_ })) {
+    if ($a -eq '' -or $a -match '[\s"]') { $quoted += ('"' + $a.Replace('"', '\"') + '"') } else { $quoted += $a }
+  }
+  $line = $quoted -join ' '
+  $out = $null
+  $err = $null
+  try {
+    $path = (Get-Command -Name $Program -CommandType Application -ErrorAction Stop | Select-Object -First 1).Path
+    Note (('run: ' + $path + ' ' + $line).TrimEnd())
+    $out = [System.IO.Path]::GetTempFileName()
+    $err = [System.IO.Path]::GetTempFileName()
+    $start = @{ FilePath = $path; NoNewWindow = $true; Wait = $true; PassThru = $true; RedirectStandardOutput = $out; RedirectStandardError = $err; ErrorAction = 'Stop' }
+    if ($line) { $start.ArgumentList = $line }
+    $p = Start-Process @start
+    $code = $p.ExitCode
+    $printed = @(Get-Content -LiteralPath $out -ErrorAction SilentlyContinue)
+    if ($null -ne $Output) { $Output.Value = $printed }
+    $text = [string]$code + ' (0x' + ('{0:X8}' -f $code) + '): ' + $path
+    if ($code -eq 0) { Note ('exit ' + $text) }
+    else {
+      Note ('FAILED, exit ' + $text)
+      foreach ($l in ($printed + @(Get-Content -LiteralPath $err -ErrorAction SilentlyContinue))) { if ("$l".Trim()) { Note ('output: ' + $l) } }
+    }
+    return $code
+  } catch {
+    Note ('FAILED, could not start ' + $Program + ': ' + $_.Exception.Message)
+    return $null
+  } finally {
+    foreach ($f in @($out, $err)) { if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } }
+  }
+}
+
+# StartLogged PROGRAM ARGUMENTS: starts an installer the way the presets always started it,
+# Start-Process -Wait -PassThru with the same arguments, in its own window, nothing redirected or
+# captured. It logs the command line before it starts and the exit code after it, in decimal and in
+# hexadecimal, FAILED for a code other than 0, and the message when the installer cannot be started. It
+# returns the exit code, or $null when the installer could not be started. Sources: as RunLogged's.
+function StartLogged([string]$Program, [string[]]$Arguments) {
+  $start = @{ FilePath = $Program; Wait = $true; PassThru = $true; ErrorAction = 'Stop' }
+  $shown = $Program
+  if ($Arguments -and $Arguments.Count -gt 0) { $start.ArgumentList = $Arguments; $shown = $shown + ' ' + ($Arguments -join ' ') }
+  Note ('start: ' + $shown)
+  try { $p = Start-Process @start }
+  catch {
+    Note ('FAILED, could not start ' + $Program + ': ' + $_.Exception.Message)
+    return $null
+  }
+  $code = $p.ExitCode
+  $text = [string]$code + ' (0x' + ('{0:X8}' -f $code) + '): ' + $Program
+  if ($code -eq 0) { Note ('exit ' + $text) } else { Note ('FAILED, exit ' + $text) }
+  return $code
+}
+
+# RestartPending: true when this run's restart mark ($BastionRestart) exists, or when Windows reports a
+# pending restart in one of the four registry places Microsoft lists for it (learn.microsoft.com
+# intune/configmgr/core/servers/deploy/install/list-of-prerequisite-checks, "Pending system restart",
+# git 7c60abcec32dd6ed1fd412284a04ef2a20a818c7): the keys Component Based Servicing\RebootPending and
+# WindowsUpdate\Auto Update\RebootRequired, the values PendingFileRenameOperations of Session Manager
+# (also learn.microsoft.com windows/win32/api/winbase/nf-winbase-movefileexw, sdk-api d43984d,
+# nf-winbase-movefileexw.md 229-233) and CurrentRebootAttempts of ServerManager. Each one found is noted.
+function RestartPending {
+  $pending = $false
+  if (Test-Path -LiteralPath $BastionRestart) {
+    Note ('restart pending: this run''s restart mark ' + $BastionRestart + ' exists')
+    $pending = $true
+  }
+  $keys = @('SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired')
+  foreach ($key in $keys) {
+    try {
+      $k = $HKLM.OpenSubKey($key)
+      if ($null -ne $k) {
+        $k.Close()
+        Note ('restart pending: the key HKLM\' + $key + ' exists')
+        $pending = $true
+      }
+    } catch { Note ('FAILED to read HKLM\' + $key + ': ' + $_.Exception.Message) }
+  }
+  $values = @(@('SYSTEM\CurrentControlSet\Control\Session Manager', 'PendingFileRenameOperations'),
+    @('SOFTWARE\Microsoft\ServerManager', 'CurrentRebootAttempts'))
+  foreach ($pair in $values) {
+    try {
+      $k = $HKLM.OpenSubKey($pair[0])
+      if ($null -ne $k) {
+        $has = $k.GetValueNames() -contains $pair[1]
+        $k.Close()
+        if ($has) {
+          Note ('restart pending: the value ' + $pair[1] + ' of HKLM\' + $pair[0] + ' is set')
+          $pending = $true
+        }
+      }
+    } catch { Note ('FAILED to read HKLM\' + $pair[0] + ' ' + $pair[1] + ': ' + $_.Exception.Message) }
+  }
+  return $pending
+}
+
 function SetV($root, [string]$sub, [string]$name, $value, [string]$kind = 'DWord') {
   try { $k = $root.CreateSubKey($sub); $k.SetValue($name, $value, [Microsoft.Win32.RegistryValueKind]::$kind); $k.Close() }
   catch { Note ("FAILED set " + $sub + " " + $name + ": " + $_.Exception.Message) }
@@ -22,10 +143,12 @@ function DelTree($root, [string]$sub, [string]$label) {
   catch { Note ("FAILED to remove " + $label + ": " + $_.Exception.Message) }
 }
 if (-not ('Bastion.Priv' -as [type])) {
-  Add-Type -Namespace Bastion -Name Priv -MemberDefinition @"
+  try {
+    Add-Type -Namespace Bastion -Name Priv -ErrorAction Stop -MemberDefinition @"
 [System.Runtime.InteropServices.DllImport("ntdll.dll")]
 public static extern int RtlAdjustPrivilege(int Privilege, bool Enable, bool CurrentThread, out bool Enabled);
 "@
+  } catch { Note ('FAILED to build the privilege helper (Add-Type): ' + $_.Exception.Message) }
 }
 $adminsSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
 function TakeOwn([string]$sub) {

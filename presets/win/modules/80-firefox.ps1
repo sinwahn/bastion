@@ -6,8 +6,10 @@ $ffDir = 'C:\Program Files\Mozilla Firefox'
 # 1. certificates: import the CA bundle into the machine Root and CA stores
 $p7b = Join-Path $BastionAssets 'roots.p7b'
 if (Test-Path -LiteralPath $p7b) {
-  try { & certutil.exe -f -addstore Root $p7b | Out-Null; & certutil.exe -f -addstore CA $p7b | Out-Null; Note '[firefox] roots.p7b imported to Root and CA' }
-  catch { Note ('[firefox] cert import note: ' + $_.Exception.Message) }
+  $rootCode = RunLogged 'certutil.exe' @('-f', '-addstore', 'Root', $p7b)
+  $caCode = RunLogged 'certutil.exe' @('-f', '-addstore', 'CA', $p7b)
+  if ($rootCode -eq 0 -and $caCode -eq 0) { Note '[firefox] roots.p7b imported to Root and CA' }
+  else { Note '[firefox] FAILED to import roots.p7b to Root and CA (the certutil lines above)' }
 } else { Note '[firefox] assets\roots.p7b not present - skipping cert import' }
 
 # 2. AutoConfig: applies these prefs at every launch, to whatever profile runs, without
@@ -32,7 +34,8 @@ pref("general.config.filename", "firefox.cfg");
 pref("general.config.obscure_value", 0);
 '@
   $acDir = Join-Path $ffDir 'defaults\pref'
-  New-Item -ItemType Directory -Force -Path $acDir | Out-Null
+  try { New-Item -ItemType Directory -Force -Path $acDir -ErrorAction Stop | Out-Null }
+  catch { Note ('[firefox] FAILED to make ' + $acDir + ': ' + $_.Exception.Message) }
   [System.IO.File]::WriteAllText((Join-Path $acDir 'autoconfig.js'), ($ac -replace "`r`n","`n"))
   Note '[firefox] AutoConfig written (chatbot off, restore session, ctrlTab recent, DoH off)'
 
@@ -55,8 +58,13 @@ pref("general.config.obscure_value", 0);
 }
 '@
   $distDir = Join-Path $ffDir 'distribution'
-  New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+  try { New-Item -ItemType Directory -Force -Path $distDir -ErrorAction Stop | Out-Null }
+  catch { Note ('[firefox] FAILED to make ' + $distDir + ': ' + $_.Exception.Message) }
   [System.IO.File]::WriteAllText((Join-Path $distDir 'policies.json'), $pol)
   Note '[firefox] policies.json written (uBlock + Dark Reader force-installed)'
 } else { Note '[firefox] install dir missing - config not written' }
+if (-not (Test-Path -LiteralPath $p7b) -and -not (Test-Path -LiteralPath $ffDir)) {
+  Note '[firefox] neither roots.p7b nor Firefox present - skipped'
+  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
+}
 Note '[firefox] done. Default-browser cannot be set by script on Win10 (hash-protected): set it once in Settings, or apply a default-associations file in the template.'

@@ -22,6 +22,7 @@ foreach ($r in $roots) {
     if ($targets.ContainsKey($clsid)) { KillHandler ($base + '\' + $sub) ($targets[$clsid] + ' in ' + $r) }
   }
 }
+Note '[context-menu] blocking the same handlers under Shell Extensions\Blocked'
 $bk = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'
 foreach ($c in $targets.Keys) { SetV $HKLM $bk $c '' 'String' }
 $leftover = @()
@@ -29,5 +30,5 @@ foreach ($r in @('AllFilesystemObjects','UserLibraryFolder','*','Directory','Fol
   $p = 'SOFTWARE\Classes\' + $r + '\shellex\ContextMenuHandlers\SendTo'
   if ($null -ne $HKLM.OpenSubKey($p)) { $leftover += $p }
 }
-if ($leftover.Count -gt 0) { Note ('Send to STILL PRESENT at: ' + ($leftover -join ' ; ')) } else { Note 'Send to: confirmed removed' }
+if ($leftover.Count -gt 0) { Note ('[context-menu] FAILED, Send to STILL PRESENT at: ' + ($leftover -join ' ; ')) } else { Note '[context-menu] Send to: confirmed removed' }
 Note '[context-menu] done'

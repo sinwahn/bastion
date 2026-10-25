@@ -2,6 +2,9 @@
 # Sets locked about:config prefs via Firefox AutoConfig (machine-wide, every profile) or a
 # user.js in one profile. DoH is kept OFF in every level so the Bastion gateway stays in
 # charge of DNS. Re-run any time to change level or reset.
+# Each step, each skip and each failure goes to the screen and to setup.log through Note of
+# lib\common.ps1; the menu itself stays on the screen only.
+. (Join-Path $PSScriptRoot '..\lib\common.ps1')
 $ErrorActionPreference = 'Stop'
 
 # ---- the preference sets, cumulative. Each item: name, value (bool/int/string). ----
@@ -120,8 +123,10 @@ if ($env:BASTION_DUMP) {
   exit 0
 }
 
+Note '[ffpriv] Firefox privacy tool'
 $dir = Find-FirefoxDir
-if ($null -eq $dir) { Write-Host 'Firefox is not installed here. Install it first (run-getint.cmd).'; exit 1 }
+if ($null -eq $dir) { Note '[ffpriv] Firefox is not installed here - skipped. Install it first (run-getint.cmd).'; Note '[ffpriv] done'; exit 1 }
+Note ('[ffpriv] Firefox: ' + $dir + ', machine level now: ' + (Current-Tier $dir))
 
 while ($true) {
   Write-Host ''
@@ -150,21 +155,23 @@ while ($true) {
   $map = @{ '1'='baseline'; '2'='t1'; '3'='t2'; '4'='t3' }
   if ($lvl -eq 'B') { continue }
 
-  if ($scope -eq 'M') {
-    if ($lvl -eq '0') { Reset-Machine $dir; Write-Host ' Done: Bastion prefs removed machine-wide.' }
-    elseif ($map.ContainsKey($lvl)) { $t = $map[$lvl]; Apply-Machine $dir $t (Tier-Set $t); Write-Host (" Done: level $t locked machine-wide (" + (Tier-Set $t).Count + ' prefs).') }
-    else { Write-Host ' not a level'; continue }
-  } else {
-    $profs = List-Profiles
-    if ($profs.Count -eq 0) { Write-Host ' No Firefox profiles yet. Start Firefox once, then re-run.'; continue }
-    for ($i=0; $i -lt $profs.Count; $i++) { Write-Host ("  [$i] " + $profs[$i]) }
-    $pi = (Read-Host ' profile number').Trim()
-    if (-not ($pi -match '^\d+$') -or [int]$pi -ge $profs.Count) { Write-Host ' bad number'; continue }
-    $pd = $profs[[int]$pi]
-    if ($lvl -eq '0') { Remove-Item -LiteralPath (Join-Path $pd 'user.js') -ErrorAction SilentlyContinue; Write-Host ' Done: user.js removed from that profile.' }
-    elseif ($map.ContainsKey($lvl)) { $t = $map[$lvl]; Apply-Profile $pd $t (Tier-Set $t); Write-Host (" Done: level $t written to that profile's user.js.") }
-    else { Write-Host ' not a level'; continue }
-  }
+  try {
+    if ($scope -eq 'M') {
+      if ($lvl -eq '0') { Reset-Machine $dir; Note '[ffpriv] Bastion prefs removed machine-wide' }
+      elseif ($map.ContainsKey($lvl)) { $t = $map[$lvl]; Apply-Machine $dir $t (Tier-Set $t); Note ("[ffpriv] level $t locked machine-wide (" + (Tier-Set $t).Count + ' prefs)') }
+      else { Write-Host ' not a level'; continue }
+    } else {
+      $profs = List-Profiles
+      if ($profs.Count -eq 0) { Note '[ffpriv] no Firefox profiles yet - skipped. Start Firefox once, then re-run.'; continue }
+      for ($i=0; $i -lt $profs.Count; $i++) { Write-Host ("  [$i] " + $profs[$i]) }
+      $pi = (Read-Host ' profile number').Trim()
+      if (-not ($pi -match '^\d+$') -or [int]$pi -ge $profs.Count) { Write-Host ' bad number'; continue }
+      $pd = $profs[[int]$pi]
+      if ($lvl -eq '0') { Remove-Item -LiteralPath (Join-Path $pd 'user.js') -ErrorAction SilentlyContinue; Note ('[ffpriv] user.js removed from the profile ' + $pd) }
+      elseif ($map.ContainsKey($lvl)) { $t = $map[$lvl]; Apply-Profile $pd $t (Tier-Set $t); Note ("[ffpriv] level $t written to the user.js of the profile " + $pd) }
+      else { Write-Host ' not a level'; continue }
+    }
+  } catch { Note ('[ffpriv] FAILED: ' + $_.Exception.Message); continue }
   Write-Host ' Restart Firefox for it to take effect.'
 }
-Write-Host 'Bye.'
+Note '[ffpriv] done'
