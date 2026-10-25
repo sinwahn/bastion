@@ -16,6 +16,7 @@ $file = Join-Path $BastionRoot 'resolution.txt'
 $sub = 'SOFTWARE\LookingGlass\IDD'
 if (-not (Test-Path -LiteralPath $file)) {
   Note '[resolution] win\resolution.txt not found - skipped'
+  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
 } else {
   # Get-Content -Raw: the whole file as one string (PowerShell-Docs at
   # a3de8f22552170e70852470d46cd52cd9ca471ec, reference/5.1/Microsoft.PowerShell.Management/Get-Content.md 497-501).
@@ -67,6 +68,7 @@ if (-not (Test-Path -LiteralPath $file)) {
     }
     Note '[resolution] ExtraMode removed: Windows follows the glass window'
   }
-  New-Item -ItemType File -Force -Path $BastionRestart | Out-Null
+  try { New-Item -ItemType File -Force -Path $BastionRestart -ErrorAction Stop | Out-Null; Note '[resolution] restart mark set: the display driver reads these values at its next start' }
+  catch { Note ('[resolution] FAILED to set the restart mark ' + $BastionRestart + ': ' + $_.Exception.Message) }
 }
 Note '[resolution] done'

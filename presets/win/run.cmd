@@ -3,10 +3,17 @@ REM Bastion setup launcher. Self-elevating. Keeps the window open so you can rea
 REM   run.cmd            run every module in order
 REM   run.cmd firefox    run only modules whose name contains "firefox"
 REM   run.cmd firefox nvidia lg-host   run several
-net session >nul 2>&1
+REM Elevated or not: WindowsPrincipal.IsInRole for the Administrators role, false in the standard-user
+REM token of User Account Control. When the administrator rights are not given, the window says so and
+REM waits for a key: PowerShell -Command exits 1 when its last command fails, read by if errorlevel 1.
+powershell -NoProfile -Command "if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }" >nul 2>&1
 if %errorlevel% neq 0 (
   echo Requesting administrator rights...
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath cmd -ArgumentList '/c','\"%~f0\" %*' -Verb RunAs"
+  if errorlevel 1 (
+    echo Administrator rights were not given: nothing ran, nothing was written to setup.log.
+    pause
+  )
   exit /b
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run.ps1" %*

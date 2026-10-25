@@ -25,8 +25,8 @@ function ReadInstalled($rule) {
     $cmd = Get-Command -Name $rule.program -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $cmd) { return $null }
     $progArgs = @($rule.args)
-    $out = & $cmd.Path @progArgs 2>$null
-    if ($LASTEXITCODE -ne 0) { return $null }
+    $out = $null
+    if ((RunLogged $cmd.Path $progArgs ([ref]$out)) -ne 0) { return $null }
     $line = @($out) | Where-Object { ([string]$_).Trim() } | Select-Object -First 1
     if ($line) { return ([string]$line).Trim() }
   }
@@ -52,10 +52,17 @@ function Decide($e, $installed, $onStick) {
   return @{ install = $false; state = ($name + ' ' + $installed + ' is current - nothing installed') }
 }
 
-$list = Get-Content -LiteralPath (Join-Path $BastionAssets 'installers.json') -Raw | ConvertFrom-Json
+try { $list = Get-Content -LiteralPath (Join-Path $BastionAssets 'installers.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+catch {
+  Note ('[installers] FAILED to read assets\installers.json: ' + $_.Exception.Message)
+  Note '[installers] done'
+  return
+}
+$found = 0
 foreach ($e in @($list.installers)) {
   $setup = Join-Path $BastionAssets $e.file
   if (-not (Test-Path -LiteralPath $setup)) { Note ('[installers] ' + $e.name + ': assets\' + $e.file + ' not found - skipped'); continue }
+  $found++
   $onStick = $null
   if (Test-Path -LiteralPath ($setup + '.version')) { $onStick = (Get-Content -LiteralPath ($setup + '.version') -Raw).Trim() }
   $d = Decide $e (ReadInstalled $e.installed) $onStick
@@ -66,10 +73,16 @@ foreach ($e in @($list.installers)) {
     if ((Read-Host -Prompt $q) -ne 'y') { Note ('[installers] ' + $e.name + ': not installed (answered n)'); continue }
     Note ('[installers] ' + $e.name + ': installing')
   } else { Note ('[installers] ' + $d.state + ' - installing') }
-  try {
-    $p = Start-Process -FilePath $setup -ArgumentList @($e.switches) -Wait -PassThru
-    Note ('[installers] ' + $e.name + ' installer exit ' + $p.ExitCode)
-    if ($e.restart) { New-Item -ItemType File -Force -Path $BastionRestart | Out-Null }
-  } catch { Note ('[installers] ' + $e.name + ' install failed: ' + $_.Exception.Message) }
+  # StartLogged of lib\common.ps1 starts the installer as before: Start-Process with the switches of
+  # installers.json, waited for, its exit code logged.
+  $code = StartLogged $setup @($e.switches)
+  if ($null -ne $code -and $e.restart) {
+    try { New-Item -ItemType File -Force -Path $BastionRestart -ErrorAction Stop | Out-Null; Note ('[installers] restart mark set: Windows needs a restart after ' + $e.name) }
+    catch { Note ('[installers] FAILED to set the restart mark ' + $BastionRestart + ': ' + $_.Exception.Message) }
+  }
+}
+if ($found -eq 0) {
+  Note '[installers] no installer of assets\installers.json is in assets - skipped'
+  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
 }
 Note '[installers] done'

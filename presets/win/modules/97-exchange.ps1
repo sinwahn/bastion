@@ -3,10 +3,12 @@
 # Server, the account only the host's key logs into, its folders and sshd's configuration. A re-run
 # changes nothing that is right and repairs what drifted. The module's word is the part of this file's
 # name after the number and the dash; its files are on the stick in win\<word>, put there by attach.sh
-# from the bastion tool's exchange-files, among them the words file <word>.json, which holds every
-# word and sentence this module uses (host-networks.nix's exchange). The names written below are fixed
-# by Windows, OpenSSH, vstbridge and the virtio ISO themselves, each beside its source. It prints only
-# the sentences of the words file, and Windows' own message when a command fails.
+# from the bastion tool's exchange-files, among them the words file <word>.json, which holds its
+# words and the sentences it tells (host-networks.nix's exchange). The names written below are fixed
+# by Windows, OpenSSH, vstbridge and the virtio ISO themselves, each beside its source. It prints the
+# sentences of the words file, a line of its own for each step and each skip, and Windows' own message
+# when a command fails, every line with the module's word; each program it runs goes through RunLogged
+# of lib\common.ps1, which logs the command line and the exit code.
 # Sources: PowerShell-Docs a3de8f22552170e70852470d46cd52cd9ca471ec reference/5.1 (PS below);
 # windows-powershell-docs b7645dd8c687139b28e845119da30ec670526507 docset/winserver2022-ps (WPS);
 # dotnet-api-docs ff6ab9d92a3fc276589a73ae80fd3c7df264608e xml (NET); windowsserverdocs
@@ -23,11 +25,12 @@
 # Select-Object -First and -Unique (Select-Object.md 513, 665).
 $word = [System.IO.Path]::GetFileNameWithoutExtension($PSCommandPath) -replace '^[0-9]+-', ''
 $prefix = '[' + $word + '] '
+Note ($prefix + 'the exchange of files between the VMs')
 $files = Join-Path $BastionRoot $word
 try {
   $words = Get-Content -LiteralPath (Join-Path $files ($word + '.json')) -Raw -ErrorAction Stop | ConvertFrom-Json
 } catch {
-  Note ($prefix + $_.Exception.Message)
+  Note ($prefix + 'FAILED to read the words file: ' + $_.Exception.Message)
   return
 }
 $inbox = Join-Path $words.folder $words.'inbox-folder'
@@ -44,9 +47,7 @@ function Tell([string]$key, [hashtable]$more) {
   Note ($prefix + $s)
 }
 # Windows' own message of a command that failed.
-function Failed($err) { Note ($prefix + $err.Exception.Message) }
-# The lines a program printed, when it failed.
-function Printed($lines) { foreach ($l in $lines) { if ("$l".Trim()) { Note ($prefix + $l) } } }
+function Failed($err) { Note ($prefix + 'FAILED: ' + $err.Exception.Message) }
 
 # 1. The vsock device, by the PCI ids of the virtio ISO's driver (KVM viosock/sys/viosock.inx 49-53);
 # Get-PnpDevice -PresentOnly (WPS PnpDevice/Get-PnpDevice.md 20, 204-206), its Status OK, ERROR or
@@ -59,6 +60,7 @@ function Device {
 }
 if ($null -eq (Device)) {
   Tell 'no-device' @{}
+  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
   return
 }
 
@@ -66,15 +68,15 @@ if ($null -eq (Device)) {
 # install/inf-manufacturer-section.md 99, 190-202), the build read from .NET's Environment.OSVersion
 # (NET System/Environment.xml 1692, its remarks on the application manifest 1736-1738;
 # System/OperatingSystem.xml 1183; System/Version.xml 446); pnputil /add-driver INF /install (WDD
-# devtest/pnputil-command-syntax.md 40-46) when the device's Status is not OK; $LASTEXITCODE
-# (about_Automatic_Variables.md 41).
+# devtest/pnputil-command-syntax.md 40-46) when the device's Status is not OK, through RunLogged.
 $windows = 'w10'
 if ([System.Environment]::OSVersion.Version.Build -ge 22000) { $windows = 'w11' }
 $driverDir = Join-Path $files ('viosock\' + $windows + '\amd64')
-if ((Device).Status -ne 'OK') {
-  $out = pnputil /add-driver (Join-Path $driverDir 'viosock.inf') /install 2>&1
-  if ($LASTEXITCODE -ne 0) { Printed $out }
-}
+$state = (Device).Status
+if ($state -ne 'OK') {
+  Note ($prefix + 'the vsock device is ' + $state + ': installing the driver from ' + $driverDir)
+  [void](RunLogged 'pnputil.exe' @('/add-driver', (Join-Path $driverDir 'viosock.inf'), '/install'))
+} else { Note ($prefix + 'the vsock device is OK - no driver installed') }
 
 # 3. vstbridge (KVM viosock/tcp-bridge): its service VsockTcpBridge (main.cpp 11), registered by -i
 # (main.cpp 45-47) with the path of the exe that ran it (utils.cpp 55-67), starting automatically
@@ -84,8 +86,8 @@ if ((Device).Status -ne 'OK') {
 # System.ServiceProcess/ServiceController.xml 1207, ServiceControllerStatus.xml 143, 197);
 # Get-FileHash -LiteralPath, SHA256 by default (PS Microsoft.PowerShell.Utility/Get-FileHash.md 27, 54);
 # Test-Path -LiteralPath (Test-Path.md 331); New-Item -ItemType Directory -Force (New-Item.md 361, 383);
-# Copy-Item -LiteralPath -Force (Copy-Item.md 495, 556); Start-Process -Wait -NoNewWindow
-# (Start-Process.md 243, 377). The copy only when the file differs, the service stopped before it.
+# Copy-Item -LiteralPath -Force (Copy-Item.md 495, 556); vstbridge -i through RunLogged, which waits
+# for it in this window. The copy only when the file differs, the service stopped before it.
 $service = 'VsockTcpBridge'
 $bridgeExe = 'vstbridge.exe'
 $bridgeFrom = Join-Path $driverDir $bridgeExe
@@ -95,12 +97,14 @@ try {
   $same = (Test-Path -LiteralPath $bridgeTo) -and
     ((Get-FileHash -LiteralPath $bridgeTo).Hash -eq (Get-FileHash -LiteralPath $bridgeFrom).Hash)
   if (-not $same) {
-    if ($null -ne $svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name $service -ErrorAction Stop }
+    Note ($prefix + 'vstbridge: copying ' + $bridgeFrom + ' to ' + $bridgeTo)
+    if ($null -ne $svc -and $svc.Status -ne 'Stopped') { Note ($prefix + 'vstbridge: stopping the service ' + $service); Stop-Service -Name $service -ErrorAction Stop }
     New-Item -ItemType Directory -Force -Path $words.'bridge-folder' -ErrorAction Stop | Out-Null
     Copy-Item -LiteralPath $bridgeFrom -Destination $bridgeTo -Force -ErrorAction Stop
-  }
-  if ($null -eq $svc) { Start-Process -FilePath $bridgeTo -ArgumentList '-i' -Wait -NoNewWindow -ErrorAction Stop }
-  if ((Get-Service -Name $service -ErrorAction Stop).Status -ne 'Running') { Start-Service -Name $service -ErrorAction Stop }
+  } else { Note ($prefix + 'vstbridge: ' + $bridgeTo + ' is current - not copied') }
+  if ($null -eq $svc) { Note ($prefix + 'vstbridge: registering the service ' + $service); [void](RunLogged $bridgeTo @('-i')) }
+  if ((Get-Service -Name $service -ErrorAction Stop).Status -ne 'Running') { Note ($prefix + 'vstbridge: starting the service ' + $service); Start-Service -Name $service -ErrorAction Stop }
+  else { Note ($prefix + 'vstbridge: the service ' + $service + ' runs') }
 } catch { Failed $_ }
 
 # 4. OpenSSH Server, the Windows optional feature serviced through Windows Update (WSD
@@ -113,8 +117,9 @@ try {
 $capability = 'OpenSSH.Server~~~~0.0.1.0'
 try {
   if ((Get-WindowsCapability -Online -Name $capability -ErrorAction Stop).State -eq 'NotPresent') {
+    Note ($prefix + 'OpenSSH Server: adding the Windows capability ' + $capability)
     Add-WindowsCapability -Online -Name $capability -ErrorAction Stop | Out-Null
-  }
+  } else { Note ($prefix + 'OpenSSH Server: the Windows capability ' + $capability + ' is present') }
 } catch {
   Failed $_
   Tell 'no-capability' @{}
@@ -144,11 +149,14 @@ try {
     $bytes = New-Object byte[] 24
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $password = ConvertTo-SecureString -String ([System.Convert]::ToBase64String($bytes)) -AsPlainText -Force
+    Note ($prefix + 'the account ' + $words.account + ': making it')
     $user = New-LocalUser -Name $words.account -Password $password -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
   } else {
+    Note ($prefix + 'the account ' + $words.account + ': present, its password settings set again')
     Set-LocalUser -Name $words.account -PasswordNeverExpires $true -UserMayChangePassword $false -ErrorAction Stop
   }
   if ($null -ne (Get-LocalGroupMember -SID $admins -Member $user.SID.Value -ErrorAction SilentlyContinue)) {
+    Note ($prefix + 'the account ' + $words.account + ': removing it from Administrators')
     Remove-LocalGroupMember -SID $admins -Member $user -ErrorAction Stop
   }
 } catch {
@@ -183,15 +191,18 @@ function Key([string]$sid, $type, $mask, $flags, $propagation) {
   $sid + ',' + [string]$type + ',' + ([int]$mask -band (-bnot $sync)) + ',' + [int]$flags + ',' + [int]$propagation
 }
 function RunIcacls([string]$path) {
-  $out = icacls $path @args 2>&1
-  if ($LASTEXITCODE -ne 0) { Printed $out }
+  [void](RunLogged 'icacls.exe' (@($path) + @($args)))
 }
 function Rights([string]$path, [bool]$protected, [object[]]$grants) {
   $acl = Get-Acl -LiteralPath $path -ErrorAction Stop
   $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
   $now = @($rules | ForEach-Object { Key $_.IdentityReference.Value $_.AccessControlType $_.FileSystemRights $_.InheritanceFlags $_.PropagationFlags } | Sort-Object)
   $want = @($grants | ForEach-Object { Key $_.sid 'Allow' $_.mask $_.flags $flat } | Sort-Object)
-  if ($acl.AreAccessRulesProtected -eq $protected -and ($now -join ';') -eq ($want -join ';')) { return }
+  if ($acl.AreAccessRulesProtected -eq $protected -and ($now -join ';') -eq ($want -join ';')) {
+    Note ($prefix + 'the rights of ' + $path + ' are as wanted - not changed')
+    return
+  }
+  Note ($prefix + 'the rights of ' + $path + ' differ: setting them with icacls')
   $keep = @($grants | ForEach-Object { $_.sid })
   foreach ($sid in @($rules | ForEach-Object { $_.IdentityReference.Value } | Select-Object -Unique)) {
     if ($keep -notcontains $sid) { RunIcacls $path '/remove' ('*' + $sid) }
@@ -207,7 +218,7 @@ function Rights([string]$path, [bool]$protected, [object[]]$grants) {
 }
 try {
   foreach ($p in @($words.folder, $inbox, $outbox)) {
-    if (-not (Test-Path -LiteralPath $p -PathType Container)) { New-Item -ItemType Directory -Path $p -ErrorAction Stop | Out-Null }
+    if (-not (Test-Path -LiteralPath $p -PathType Container)) { Note ($prefix + 'making the folder ' + $p); New-Item -ItemType Directory -Path $p -ErrorAction Stop | Out-Null }
   }
   Rights $words.folder $true @(
     (Grant $system '(OI)(CI)F' $rights::FullControl $both),
@@ -252,16 +263,18 @@ $text = (@(
   'AllowTcpForwarding no') -join "`r`n") + "`r`n"
 $written = $false
 try {
-  if (-not (Test-Path -LiteralPath $ssh -PathType Container)) { New-Item -ItemType Directory -Path $ssh -ErrorAction Stop | Out-Null }
+  if (-not (Test-Path -LiteralPath $ssh -PathType Container)) { Note ($prefix + 'making the folder ' + $ssh); New-Item -ItemType Directory -Path $ssh -ErrorAction Stop | Out-Null }
   if ((Get-Content -LiteralPath $config -Raw -ErrorAction SilentlyContinue) -cne $text) {
+    Note ($prefix + 'writing ' + $config)
     Set-Content -LiteralPath $config -Value $text -NoNewline -Encoding Ascii -ErrorAction Stop
     $written = $true
-  }
+  } else { Note ($prefix + $config + ' is current - not written') }
   $public = Join-Path $files $words.'public-key'
   if (-not (Test-Path -LiteralPath $keys) -or (Get-FileHash -LiteralPath $keys).Hash -ne (Get-FileHash -LiteralPath $public).Hash) {
+    Note ($prefix + 'copying the host''s public key to ' + $keys)
     Copy-Item -LiteralPath $public -Destination $keys -Force -ErrorAction Stop
     $written = $true
-  }
+  } else { Note ($prefix + $keys + ' is current - not copied') }
   Rights $keys $true @(
     (Grant $system 'F' $rights::FullControl $alone),
     (Grant $admins 'F' $rights::FullControl $alone),
@@ -280,12 +293,14 @@ $sshdService = 'sshd'
 $firewallRule = 'OpenSSH-Server-In-TCP'
 try {
   $sshd = Get-Service -Name $sshdService -ErrorAction Stop
-  if ($sshd.StartType -ne 'Automatic') { Set-Service -Name $sshdService -StartupType Automatic -ErrorAction Stop }
-  if ($written -or $sshd.Status -ne 'Running') { Restart-Service -Name $sshdService -ErrorAction Stop }
+  if ($sshd.StartType -ne 'Automatic') { Note ($prefix + 'sshd: starting automatically from now on'); Set-Service -Name $sshdService -StartupType Automatic -ErrorAction Stop }
+  if ($written -or $sshd.Status -ne 'Running') { Note ($prefix + 'sshd: restarting the service'); Restart-Service -Name $sshdService -ErrorAction Stop }
+  else { Note ($prefix + 'sshd: runs with the current configuration - not restarted') }
 } catch { Failed $_ }
 try {
   $rule = Get-NetFirewallRule -Name $firewallRule -ErrorAction SilentlyContinue
-  if ($null -ne $rule -and [string]$rule.Enabled -eq 'True') { Disable-NetFirewallRule -Name $firewallRule -ErrorAction Stop }
+  if ($null -ne $rule -and [string]$rule.Enabled -eq 'True') { Note ($prefix + 'disabling the firewall rule ' + $firewallRule); Disable-NetFirewallRule -Name $firewallRule -ErrorAction Stop }
+  else { Note ($prefix + 'the firewall rule ' + $firewallRule + ' is not enabled - nothing to disable') }
 } catch { Failed $_ }
 
 # 9. What the module found: the device's Status and each service's Status as Windows reports them.
@@ -294,3 +309,4 @@ Tell 'bridge' @{ service = $service; state = (Get-Service -Name $service -ErrorA
 Tell 'sshd' @{ state = (Get-Service -Name $sshdService -ErrorAction SilentlyContinue).Status; version = $version }
 Tell 'account' @{}
 Tell 'folders' @{}
+Note ($prefix + 'done')
