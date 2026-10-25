@@ -2086,8 +2086,17 @@ class VmScreen(RuleScreen):
         if not await self.app.push_screen_wait(Tell("\n".join(lines + ([warning] if warning else []))
                                                     + "\n\nEnter: start it.")):
             return
+        # The line is on the screen before the start, which holds the event
+        # loop until it ends: wait_for_refresh returns once the screen is
+        # refreshed (textual 8.2.6 message_pump.py 469-488, screen.py 1236-1262).
+        self.say(f"starting {v.name} ...")
+        await self.wait_for_refresh()
         moved = station_follows(self.app, v)
-        start_vm(s.conn, h, v.name, pins, vsock, first)
+        try:
+            start_vm(s.conn, h, v.name, pins, vsock, first)
+        except libvirt.libvirtError as e:
+            self.say(f"not started: {e}")
+            return
         if first:
             FIRST_STARTED.add(v.name)
         # Its window and the wait: the command line's bastion start or bastion
@@ -2955,6 +2964,7 @@ def start_step(name, first):
             print(f"STOP: {name} is not started (the lines of {CFG['command']} {cmd} above).")
             return 1
         print("\n".join(lines), flush=True)
+        print(f"starting {name} ...", flush=True)
         station_follows(None, v)
         write_copy()
         try:
