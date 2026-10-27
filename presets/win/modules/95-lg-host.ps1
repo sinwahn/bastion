@@ -9,8 +9,8 @@ if (-not (Test-Path -LiteralPath $exe)) {
   Note '[lg-host] assets\looking-glass-host.exe not found - skipped'
   if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
 } elseif (RestartPending) {
-  Note '[lg-host] a restart is pending: restart Windows, then run.cmd lg-host'
-  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'skipped' }
+  Note '[lg-host] a restart is pending: waits for restart; after it the run goes on with lg-host by itself'
+  if ($global:BastionModuleState -ne 'failed') { $global:BastionModuleState = 'waits for restart' }
 } else {
   Note '[lg-host] starting the installer in its own window: click through it to its end'
   $code = StartLogged $exe @()
