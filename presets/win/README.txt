@@ -26,7 +26,7 @@ back the same way. No rebuild.
 
 LAYOUT:
   run.cmd: self-elevating launcher (double-click this)
-  run.ps1: the runner it calls
+  run.ps1: the runner it calls; when a module waits for restart, it writes Windows' RunOnce value Bastion, so the run goes on with that module by itself after the restart
   lib\common.ps1: shared helpers (not run on its own)
   modules\: one component per file, run in numeric order:
      10-shell: Explorer prefs, dark mode, This PC nodes, Spotlight off, search box off
@@ -70,8 +70,9 @@ once per run.
 - "==== run start" with the date and time: a run begins. Then "Windows:" with
 Windows' name, version and build, "elevated: yes" or "elevated: no", the
 presets folder, and the modules to run.
-- "start NAME" and "end NAME: done", "end NAME: skipped" or "end NAME:
-failed" (with the error): each module's beginning and end.
+- "start NAME" and "end NAME: done", "end NAME: skipped", "end NAME: waits
+for restart" or "end NAME: failed" (with the error): each module's
+beginning and end.
 - "[word] ...": what a module does, what it skips and why, and what fails;
 every failure line holds the word FAILED and Windows' own message.
 - "run: PROGRAM ARGUMENTS", then "exit N (0x...)": a console program (reg,
@@ -84,15 +85,33 @@ meaning.
 (0x...)": an installer, started in its own window as always, and its exit
 code. A program that cannot be started: "FAILED, could not start ...".
 - "restart pending: ...": which restart mark or Windows value makes Looking
-Glass wait for a restart.
-- "summary: NAME done", "skipped" or "failed": one line per module at the
-end, then "Restart Windows to finish this setup." when a module asks for it.
+Glass wait for a restart, or makes the run ask for a restart at its end.
+- "summary: NAME done", "skipped", "waits for restart" or "failed": one line
+per module at the end.
+- "the run goes on after the restart with WORDS: writing the value Bastion
+of HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce: ...": modules
+waited for restart; Windows runs that command line once, at the next
+sign-in of an administrator.
+- "Restart Windows now: answered y, restarting", then the shutdown.exe line;
+or "Restart Windows now: not answered y, Windows is not restarted", then
+"Restart Windows to finish this setup.": the answer to the question
+"Restart Windows now to finish this setup? (y/n)", which the run asks at its
+end whenever a restart is pending.
 
 LOOKING GLASS (95-lg-host):
 It installs only in a boot with no restart pending. After a driver install
 (75-installers sets the restart mark) or while Windows itself reports a
-pending restart, it installs nothing and says "[lg-host] a restart is
-pending: restart Windows, then run.cmd lg-host". Otherwise it opens the
+pending restart, it installs nothing, says "[lg-host] a restart is pending:
+waits for restart; after it the run goes on with lg-host by itself" and
+ends "waits for restart". The run asks at its end "Restart Windows now to
+finish this setup? (y/n)": y restarts Windows at once; n leaves the restart
+to you. At the next sign-in of an account of the Administrators group after
+the restart, Windows starts run.cmd lg-host from the PRESETS stick by
+itself; it asks for administrator rights once, then runs lg-host. A sign-in
+of an account outside Administrators starts nothing: it waits for an
+administrator's sign-in. When the stick was unplugged before the restart,
+run attach.sh NAME on the host again, then run.cmd lg-host in Windows. In a
+boot with no restart pending it opens the
 installer's own window, as a double-click does: click through it to its
 end. setup.log then says "[lg-host] installed" or "[lg-host] install
 FAILED, exit N (0x...)".

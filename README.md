@@ -232,7 +232,11 @@ T is win10 or win11.
    ```
 
 The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
-The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
+The run.cmd window stays open at the end. The full log, with each module's end (done, skipped, waits for restart or failed): C:\ProgramData\Bastion\setup.log
+Whenever a restart is pending at the run's end, it asks `Restart Windows now to finish this setup? (y/n)`: y restarts Windows at once; n leaves the restart to you.
+A module that needs a restart first ends "waits for restart" (lg-host after a driver install). At the next sign-in of an account of the Administrators group after the restart, Windows starts run.cmd from the PRESETS stick by itself, with the words of the modules that waited alone; it asks for administrator rights once.
+A sign-in of an account outside Administrators starts nothing: it waits for an administrator's sign-in.
+When the stick was unplugged before the restart, run `~/presets/attach.sh NAME` on the host again, then in Windows run.cmd with the module's word, such as `run.cmd lg-host`.
 
 Files placed by hand in ~/presets/win/assets, under these exact names:
 
