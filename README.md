@@ -223,7 +223,7 @@ T is win10 or win11.
    - `run.cmd`: every module in order.
    - `run.cmd firefox`: only the firefox module.
    - `run.cmd debloat updates`: only those two.
-   - `run.cmd repair`: only on this word, never in a run without words. It reinstalls the virtio drivers of that Windows from the stick (viostor for the disk, NetKVM for the network card, qxldod for the QXL video on Windows 10; no internet needed), each installer of assets/installers.json that is on the stick whatever version is installed, and nvidia-app.exe when it is there. Looking Glass is not touched. Run it after `attach.sh NAME` has built the stick for that VM.
+   - `run.cmd repair`: only on this word, never in a run without words. It first reinstalls Looking Glass: uninstalled silently, its driver packages deleted, installed silently; while a restart is pending it waits for the restart and goes on after it by itself. Then it reinstalls the virtio drivers of that Windows from the stick (viostor for the disk, NetKVM for the network card, qxldod for the QXL video on Windows 10; no internet needed), each installer of assets/installers.json that is on the stick whatever version is installed, and nvidia-app.exe when it is there. Run it after `attach.sh NAME` has built the stick for that VM.
    - A driver goes onto a device only when no driver ranked as high is on it: a device whose driver was deleted gets it, a device on the same driver keeps it.
 4. When done, unplug the stick on the host:
 
@@ -232,7 +232,7 @@ T is win10 or win11.
    ```
 
 The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, activation, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, display, and repair, which runs only by `run.cmd repair`.
-The run.cmd window stays open at the end. The full log, with each module's end (done, skipped, waits for restart or failed): C:\ProgramData\Bastion\setup.log; before the silent Looking Glass install (lg-host) it says "[lg-host] Looking Glass requires cumulative updates from Windows, otherwise it will not work at all.", and the display driver starts after the restart that follows.
+The run.cmd window stays open at the end. The full log, with each module's end (done, skipped, waits for restart or failed): C:\ProgramData\Bastion\setup.log; before the silent Looking Glass install (lg-host) it says "[lg-host] Looking Glass requires cumulative updates from Windows, otherwise it will not work at all.", and the display driver starts after the restart that follows. run.cmd repair's Looking Glass step logs, each line with "[repair] Looking Glass:", the devices of its driver packages, the uninstaller, each package deleted, then the same install lines with [repair].
 Whenever a restart is pending at the run's end, it asks `Restart Windows now to finish this setup? (y/n)`: y restarts Windows at once; n leaves the restart to you.
 A module that needs a restart first ends "waits for restart" (lg-host after a driver install). At the next sign-in of an account of the Administrators group after the restart, Windows starts run.cmd from the PRESETS stick by itself, with the words of the modules that waited alone; it asks for administrator rights once.
 A sign-in of an account outside Administrators starts nothing: it waits for an administrator's sign-in.
