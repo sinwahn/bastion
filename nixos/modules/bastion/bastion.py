@@ -1838,14 +1838,18 @@ class VmsScreen(Screen):
     async def new_vm(self):
         s = State()
         h = s.host
-        used = {v.name for v in s.vms} | set(s.nets.get("stations", {})) | set(CFG["namesInUse"])
+        used = {v.name for v in s.vms} | set(CFG["namesInUse"])
         retired = set(os.listdir(CFG["retired"])) if os.path.isdir(CFG["retired"]) else set()
+        templates = {p["name"] for p in CFG["templates"]}
         name = await self.app.push_screen_wait(TypeIn(
             "1. Name",
             f"letters, digits and dashes, at most {CFG['nameMax']} characters; the name is also the VM's cable",
-            lambda n: guards.name_refusal(n, used, retired, CFG["nameMax"], CFG["refusedPrefixes"])))
+            lambda n: guards.name_refusal(n, used, retired, templates, CFG["nameMax"], CFG["refusedPrefixes"])))
         if name is None:
             return
+        # The name's entry in networks.json, which no VM stands behind: the
+        # new VM takes it over, its network, address and internet rule kept.
+        station = s.nets.get("stations", {}).get(name)
         opts = []
         for p in CFG["templates"]:
             ready = os.path.exists(p["sealed"])
@@ -1888,18 +1892,22 @@ class VmsScreen(Screen):
                               meaning="a VM with a card shows its screen through looking-glass")
         if card is None:
             return
-        network = await self.ask("7. Network", [(n, n, False) for n in s.nets.get("networks", {})],
-                                 meaning="the network the VM's cable is on")
-        if network is None:
-            return
-        rule, names = await ask_rule(self, None, [])
-        if rule is None:
-            return
+        if station is None:
+            network = await self.ask("7. Network", [(n, n, False) for n in s.nets.get("networks", {})],
+                                     meaning="the network the VM's cable is on")
+            if network is None:
+                return
+            rule, names = await ask_rule(self, None, [])
+            if rule is None:
+                return
+        else:
+            network, rule, names = station["network"], station["rule"], station.get("names", [])
         functions = functions_of(s, card)
         summary = (f"8. The VM {name}:\n"
                    f"  Windows: {t}\n  cores: {cores} threads, {'fast' if fast == 'yes' else 'dense'} cores first\n"
                    f"  RAM: {ram} GB\n  disk: {disk} GB\n  graphics: {graphics_text(s, card)}\n"
                    f"  network: {network}\n  internet: {rule}" + (f" ({', '.join(names)})" if rule == "listed" else "")
+                   + (f"\n  network and internet rule: from {name}'s existing entry in networks.json" if station is not None else "")
                    + "\n\nEnter: make it.")
         if not await self.app.push_screen_wait(Tell(summary)):
             return
@@ -1929,11 +1937,19 @@ class VmsScreen(Screen):
             return
         CHANGED.add(name)
         mac =ET.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("./devices/interface/mac").get("address")
-        ip = free_address(nets, network)
-        entry = {"network": network, "ip": ip, "mac": mac, "rule": rule}
-        if rule == "listed":
-            entry["names"] = names
-        nets["stations"][name] = entry
+        # A name's entry taken over keeps every key it has, its mac the new
+        # VM's; any other name gets an entry with the network's next free
+        # address.
+        entry = nets["stations"].get(name)
+        if entry is not None:
+            entry["mac"] = mac
+            ip = entry["ip"]
+        else:
+            ip = free_address(nets, network)
+            entry = {"network": network, "ip": ip, "mac": mac, "rule": rule}
+            if rule == "listed":
+                entry["names"] = names
+            nets["stations"][name] = entry
         rc, out = write_networks(self.app, nets)
         self.action_read()
         if rc:
