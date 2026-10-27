@@ -10,11 +10,13 @@ HOW TO RUN (inside the Windows workstation, from the PRESETS drive):
   run.cmd firefox: run only the firefox module
   run.cmd debloat updates: run just those
   run.cmd repair: only on this word, never in a run without words: reinstalls
-    the virtio drivers of this Windows from the stick's win\virtio (no internet
-    needed), each installer of assets\installers.json that is on the stick,
-    whatever version is installed (asking first where the list says so), and
-    assets\nvidia-app.exe when it is there; Looking Glass is not touched. Run it
-    after attach.sh NAME has built the stick for this VM.
+    Looking Glass first (uninstalled silently, its driver packages deleted,
+    installed silently; see LOOKING GLASS below), then the virtio drivers of
+    this Windows from the stick's win\virtio (no internet needed), each
+    installer of assets\installers.json that is on the stick, whatever version
+    is installed (asking first where the list says so), and
+    assets\nvidia-app.exe when it is there. Run it after attach.sh NAME has
+    built the stick for this VM.
     A driver goes onto a device only when no driver ranked as high is on it: a device whose driver was deleted gets it, a device on the same driver keeps it.
 The window stays open at the end. Full log: C:\ProgramData\Bastion\setup.log
 (THE LOG below says what each line means). When the administrator rights are
@@ -44,7 +46,7 @@ LAYOUT:
      95-lg-host: install the Looking Glass host silently, no window to click through, only in a boot with no restart pending; it needs Windows' cumulative updates, and its display driver starts after a restart (see LOOKING GLASS below)
      96-resolution: lock the Looking Glass display at the size in resolution.txt, or let it follow the window
      97-exchange: the exchange of files between the VMs: the vsock driver, vstbridge, OpenSSH Server, the account exchange (only the host's key logs into it, SFTP only), C:\Exchange with Inbox and Outbox; ends at once in a VM with no exchange device (started outside bastion, or a template)
-     99-repair: only by run.cmd repair: the virtio drivers from virtio\ (viostor for the disk, NetKVM for the network card, qxldod for the QXL video, which the virtio ISO holds for Windows 10 alone), the installers on the stick and the NVIDIA app, reinstalled
+     99-repair: only by run.cmd repair: first Looking Glass (uninstalled silently, its driver packages deleted, installed silently), then the virtio drivers from virtio\ (viostor for the disk, NetKVM for the network card, qxldod for the QXL video, which the virtio ISO holds for Windows 10 alone), the installers on the stick and the NVIDIA app, reinstalled
   assets\: the installers; attach.sh keeps the listed ones current and brings looking-glass-host.exe, the others are put here by hand (see below)
   resolution.txt: on the stick only, written by attach.sh for the VM it plugs into
   exchange\: on the stick only, written by attach.sh from bastion exchange-files: the driver files, the host's public key and exchange.json for 97-exchange
@@ -78,8 +80,8 @@ every failure line holds the word FAILED and Windows' own message.
 diskpart, nvidia-smi, certutil, pnputil, icacls, vstbridge) and its exit
 code. For a code other than 0 the line is "FAILED, exit N (0x...)", followed
 by each line the program printed, as "output: ...". In 99-repair pnputil's
-0, 259 and 3010 count as success: "exit N (0x...)" is followed by the code's
-meaning.
+0, 259 and 3010 count as success for /add-driver, and 0 and 3010 for
+/delete-driver: "exit N (0x...)" is followed by the code's meaning.
 - "start: INSTALLER ARGUMENTS", then "exit N (0x...)" or "FAILED, exit N
 (0x...)": an installer, started in its own window as always, and its exit
 code. A program that cannot be started: "FAILED, could not start ...".
@@ -108,6 +110,18 @@ installer starts, no check made. Then "start: ...looking-glass-host.exe
 /S", and "[lg-host] installed" with "[lg-host] restart mark set: the
 display driver starts after the restart of Windows", or "[lg-host] install
 FAILED, exit N (0x...)".
+- "[repair] Looking Glass: ...": the first step of run.cmd repair. Each
+device with a hardware id of LGIdd.inf, LGInput.inf or ivshmem.inf and
+"uses the driver package oemN.inf", or "no device has a hardware id of
+LGIdd.inf, LGInput.inf or ivshmem.inf - no driver package to delete"; then
+"uninstalling with PATH" and "start: PATH /S _?=FOLDER", or "no uninstall
+entry Looking Glass (IDD) with an UninstallString (...) - not uninstalled,
+the step goes on"; then "deleting the driver package oemN.inf" and its
+pnputil line, for each package; then the install's lines as above, with
+"[repair]" in place of "[lg-host]". While a restart is pending: "a restart
+is pending: waits for restart; after it the run goes on with repair by
+itself". Without the installer on the stick: "assets\looking-glass-host.exe
+not found - not uninstalled, no driver package deleted, not installed".
 - "summary: NAME done", "skipped" or "failed": one line per module at the
 end, then "Restart Windows to finish this setup." when a module asks for it.
 
@@ -131,11 +145,16 @@ says "[lg-host] install FAILED, exit N (0x...)", or "[lg-host] installed"
 and "[lg-host] restart mark set: the display driver starts after the
 restart of Windows"; the run then asks at its end for that restart, as
 above.
-A VM where the Looking Glass install crashed (setup.log says "installer exit
--1073741819" or "[lg-host] install FAILED"):
-1. In Windows' installed apps (Settings, Apps), uninstall "Looking Glass (IDD)".
-2. Restart Windows.
-3. Run run.cmd lg-host; the installer runs silently, with no window.
+A VM where the Looking Glass install crashed or Looking Glass broke
+(setup.log says "installer exit -1073741819" or "[lg-host] install
+FAILED"): run run.cmd repair. Its first step uninstalls Looking Glass
+silently with the uninstaller that Windows' uninstall entry "Looking Glass
+(IDD)" names, deletes its driver packages (pnputil /delete-driver
+/uninstall, for each device with a hardware id of LGIdd.inf, LGInput.inf or
+ivshmem.inf), installs it again silently and sets the restart mark; the run
+then asks at its end for that restart. While a restart is pending the step
+waits for it, and after the restart the run goes on with repair by itself,
+as above.
 
 NOTES:
   - Default browser cannot be set by a script on Windows 10 (the choice is hash-

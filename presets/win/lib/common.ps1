@@ -94,6 +94,29 @@ function StartLogged([string]$Program, [string[]]$Arguments) {
   return $code
 }
 
+# InstallLookingGlass PREFIX: installs Looking Glass silently from assets\looking-glass-host.exe, the Looking
+# Glass host installer that attach.sh brings, waited for through StartLogged. Every line starts with PREFIX,
+# the calling module's tag with its space, as 97-exchange writes its own: '[lg-host] ' in 95-lg-host,
+# '[repair] ' in 99-repair. The callers check that the installer is on the stick and that no restart is
+# pending first. The requirement line is stated before the installer starts, no check made; after exit 0
+# the restart mark is set. It returns the exit code, or $null when the installer could not be started.
+function InstallLookingGlass([string]$prefix) {
+  Note ($prefix + 'Looking Glass requires cumulative updates from Windows, otherwise it will not work at all.')
+  # /S: the NSIS manual, 3.2.1 Common Options (nsis.sourceforge.io/Docs/Chapter3.html), "/S runs the installer or uninstaller silently"; Looking Glass's doc/install_idd.rst 67-71 at cdba29f2 names it
+  $code = StartLogged (Join-Path $BastionAssets 'looking-glass-host.exe') @('/S')
+  if ($null -eq $code) { Note ($prefix + 'install FAILED: the installer could not be started') }
+  elseif ($code -eq 0) {
+    Note ($prefix + 'installed')
+    # The installer exits 0 whether or not Windows needs a restart for its drivers (gnif/LookingGlass at
+    # cdba29f2f6bcae3ded26369fc231a067cbca3752 idd/installer.nsi 205-216; the NSIS manual, Appendix D.1,
+    # "0 - Normal execution (no error)"), so the restart mark is set after exit 0.
+    try { New-Item -ItemType File -Force -Path $BastionRestart -ErrorAction Stop | Out-Null; Note ($prefix + 'restart mark set: the display driver starts after the restart of Windows') }
+    catch { Note ($prefix + 'FAILED to set the restart mark ' + $BastionRestart + ': ' + $_.Exception.Message) }
+  }
+  else { Note ($prefix + 'install FAILED, exit ' + $code + ' (0x' + ('{0:X8}' -f $code) + ')') }
+  return $code
+}
+
 # RestartPending: true when this run's restart mark ($BastionRestart) exists, or when Windows reports a
 # pending restart in one of the four registry places Microsoft lists for it (learn.microsoft.com
 # intune/configmgr/core/servers/deploy/install/list-of-prerequisite-checks, "Pending system restart",
