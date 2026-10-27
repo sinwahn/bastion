@@ -231,9 +231,10 @@ T is win10 or win11.
    virsh -c qemu:///system detach-disk NAME sdz --live
    ```
 
-The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
+The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, activation, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
 The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
 The updates step installs the updates Windows Update offers that Windows, downloaded from Microsoft: it needs the VM's internet and may take long; the log shows each update's title, size and result. Without internet the log says FAILED: in bastion set the VM's internet rule to open (v, the VM, internet rule), then run run.cmd updates.
+The activation step asks for the Windows product key at the console: the key is typed and kept nowhere, not in the log. An activated Windows is skipped and asked nothing; Enter skips the step, and run.cmd activation asks again. It needs the VM's internet: without it the log says FAILED: in bastion set the VM's internet rule to open (v, the VM, internet rule), then run run.cmd activation.
 
 Files placed by hand in ~/presets/win/assets, under these exact names:
 
@@ -266,7 +267,7 @@ Each VM's setup, once:
    run.cmd exchange
    ```
 
-A VM without internet needs it for run.cmd exchange and for run.cmd updates: in bastion set its internet rule to open (v, the VM, internet rule), run run.cmd exchange or run.cmd updates in the VM, then set the rule back the same way.
+A VM without internet needs it for run.cmd exchange, for run.cmd updates and for run.cmd activation: in bastion set its internet rule to open (v, the VM, internet rule), run run.cmd exchange, run.cmd updates or run.cmd activation in the VM, then set the rule back the same way.
 
 In Windows, a file to send goes into C:\Exchange\Outbox; a file sent to the VM arrives in C:\Exchange\Inbox.
 The host's inbox is /var/lib/exchange/inbox.
