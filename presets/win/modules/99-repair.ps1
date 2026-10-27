@@ -83,10 +83,11 @@ if (-not (Test-Path -LiteralPath $exe)) {
   }
   foreach ($inf in $packages) {
     Note ('[repair] Looking Glass: deleting the driver package ' + $inf)
-    [void](RunLogged 'pnputil.exe' @('/delete-driver', $inf, '/uninstall') -Success @{
+    $code = RunLogged 'pnputil.exe' @('/delete-driver', $inf, '/uninstall') -Success @{
       0 = 'the requested operation completed successfully'
       3010 = 'the requested operation completed successfully and a system reboot is required'
-    })
+    }
+    if ($code -eq 3010) { $why += ('Looking Glass driver package ' + $inf) }
   }
   [void](InstallLookingGlass '[repair] ')
 }
