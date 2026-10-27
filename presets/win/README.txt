@@ -88,9 +88,14 @@ Windows, downloaded from Microsoft; it needs the VM's internet and may take
 long, as its first line says. Before the download: each update's title and
 its size, "up to N MB". An update that can ask for input is skipped; for an
 update with a license, its text is shown and "accept the license of TITLE?
-(y/n)" asked, n skips it; an exclusive update is installed in an Install call
-of its own. After the install: "TITLE: result N NAME", 4 orcFailed and 5
-orcAborted with FAILED and the HResult; "restart mark set" names the update
+(y/n)" asked, n skips it; the license text and that question show on the
+screen only and are not in setup.log, an exception to the first sentence of
+THE LOG; the answer is in setup.log. An update that fails to download gets a
+line of its own: "TITLE: not downloaded, download result N NAME", with FAILED
+and the HResult for 4 and 5, then "- not installed". An exclusive update is
+installed in an Install call of its own. After the install: "TITLE: result N
+NAME", 4 orcFailed and 5 orcAborted with FAILED and the HResult; "restart
+mark set" names the update
 that needs the restart. When Search, Download or Install fails: "FAILED", the
 call, Windows' code and message, then the way: in bastion on the host, set
 the VM's internet rule to open (v, the VM, internet rule), then run.cmd

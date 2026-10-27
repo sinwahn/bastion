@@ -53,16 +53,22 @@ function InstallUpdates {
   $call = 'New-Object -ComObject Microsoft.Update.Session'
   try {
     $session = New-Object -ComObject Microsoft.Update.Session
+    $call = 'CreateUpdateSearcher'
+    $searcher = $session.CreateUpdateSearcher()
     $call = 'Search'
-    $found = $session.CreateUpdateSearcher().Search("IsInstalled=0 and IsHidden=0 and Type='Software'").Updates
+    $found = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'").Updates
     if ($found.Count -eq 0) {
       Note '[updates] Windows Update offers no update - nothing installed'
       return
     }
+    $call = 'New-Object -ComObject Microsoft.Update.UpdateColl'
     $download = New-Object -ComObject Microsoft.Update.UpdateColl
     for ($i = 0; $i -lt $found.Count; $i++) {
+      $call = 'Item'
       $u = $found.Item($i)
+      $call = 'MaxDownloadSize'
       $mb = [math]::Round(([decimal]$u.MaxDownloadSize) / 1MB, 1)
+      $call = 'Title'
       Note ('[updates] ' + $u.Title + ', up to ' + $mb.ToString('0.0', $culture) + ' MB')
       $asks = $false
       try { $asks = $u.InstallationBehavior.CanRequestUserInput } catch { }
@@ -74,7 +80,9 @@ function InstallUpdates {
       try { $accepted = $u.EulaAccepted } catch { }
       if (-not $accepted) {
         Note ('[updates] ' + $u.Title + ' has a license that must be accepted:')
+        $call = 'EulaText'
         Write-Host $u.EulaText
+        $call = 'Read-Host'
         if ((Read-Host -Prompt ('accept the license of ' + $u.Title + '? (y/n)')) -ne 'y') {
           Note ('[updates] ' + $u.Title + ': skipped, its license was not accepted (answered n)')
           continue
@@ -83,21 +91,28 @@ function InstallUpdates {
         $u.AcceptEula()
         Note ('[updates] ' + $u.Title + ': license accepted (answered y)')
       }
+      $call = 'Add'
       [void]$download.Add($u)
     }
     if ($download.Count -eq 0) {
       Note '[updates] no update left to download - nothing installed'
       return
     }
-    $call = 'Download'
+    $call = 'CreateUpdateDownloader'
     $downloader = $session.CreateUpdateDownloader()
+    $call = 'Updates'
     $downloader.Updates = $download
+    $call = 'Download'
     $got = $downloader.Download()
+    $call = 'New-Object -ComObject Microsoft.Update.UpdateColl'
     $together = New-Object -ComObject Microsoft.Update.UpdateColl
     $calls = @()
     for ($i = 0; $i -lt $download.Count; $i++) {
+      $call = 'Item'
       $u = $download.Item($i)
+      $call = 'IsDownloaded'
       if (-not $u.IsDownloaded) {
+        $call = 'GetUpdateResult'
         $r = $got.GetUpdateResult($i)
         $line = '[updates] ' + $u.Title + ': not downloaded, download result ' + $r.ResultCode + ' ' + $names[[int]$r.ResultCode]
         if ($r.ResultCode -eq 4 -or $r.ResultCode -eq 5) { $line += ', FAILED' }
@@ -108,25 +123,34 @@ function InstallUpdates {
       $impact = 0
       try { $impact = $u.InstallationBehavior.Impact } catch { }
       if ($impact -eq 2) {
+        $call = 'New-Object -ComObject Microsoft.Update.UpdateColl'
         $one = New-Object -ComObject Microsoft.Update.UpdateColl
+        $call = 'Add'
         [void]$one.Add($u)
         $calls += @{ updates = $one; alone = $u.Title }
-      } else { [void]$together.Add($u) }
+      } else {
+        $call = 'Add'
+        [void]$together.Add($u)
+      }
     }
     if ($together.Count -gt 0) { $calls = @(@{ updates = $together; alone = $null }) + $calls }
     if ($calls.Count -eq 0) {
       Note '[updates] no update was downloaded - nothing installed'
       return
     }
-    $call = 'Install'
     foreach ($c in $calls) {
       if ($null -ne $c.alone) { Note ('[updates] ' + $c.alone + ' is exclusive: installing it in an Install call of its own') }
+      $call = 'CreateUpdateInstaller'
       $installer = $session.CreateUpdateInstaller()
+      $call = 'Updates'
       $installer.Updates = $c.updates
+      $call = 'Install'
       $done = $installer.Install()
       $why = @()
       for ($i = 0; $i -lt $c.updates.Count; $i++) {
+        $call = 'Item'
         $title = $c.updates.Item($i).Title
+        $call = 'GetUpdateResult'
         $r = $done.GetUpdateResult($i)
         $line = '[updates] ' + $title + ': result ' + $r.ResultCode + ' ' + $names[[int]$r.ResultCode]
         if ($r.ResultCode -eq 4 -or $r.ResultCode -eq 5) { $line += ', FAILED' }
