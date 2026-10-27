@@ -231,8 +231,9 @@ T is win10 or win11.
    virsh -c qemu:///system detach-disk NAME sdz --live
    ```
 
-The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
+The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, display, and repair, which runs only by `run.cmd repair`.
 The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
+The display step makes the Looking Glass display the only active display, told by its device: afterwards the desktop is on the Looking Glass display alone, and the virt-manager console shows nothing while the Looking Glass display is the only active one. The configuration is saved to Windows' display database: "the resulting topology, source, and target mode are saved to the database" (Microsoft's SetDisplayConfig page). Its lines in the log: "[display] made inactive: NAME" for each display it made inactive, then "[display] SetDisplayConfig: done"; "- waits for restart" while the Looking Glass display device or its driver is not there before a restart, and the run after the restart runs it again; "- skipped" when Looking Glass is not installed or its display is not present with no restart pending. After a repair of Looking Glass, `run.cmd display` is the way back to the Looking Glass display.
 The updates step installs the updates Windows Update offers that Windows, downloaded from Microsoft: it needs the VM's internet and may take long; the log shows each update's title, size and result. Without internet the log says FAILED: in bastion set the VM's internet rule to open (v, the VM, internet rule), then run run.cmd updates.
 
 Files placed by hand in ~/presets/win/assets, under these exact names:
