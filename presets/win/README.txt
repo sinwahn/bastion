@@ -45,6 +45,7 @@ LAYOUT:
      95-lg-host: install the Looking Glass host silently, no window to click through, only in a boot with no restart pending; it needs Windows' cumulative updates, and its display driver starts after a restart (see LOOKING GLASS below)
      96-resolution: lock the Looking Glass display at the size in resolution.txt, or let it follow the window
      97-exchange: the exchange of files between the VMs: the vsock driver, vstbridge, OpenSSH Server, the account exchange (only the host's key logs into it, SFTP only), C:\Exchange with Inbox and Outbox; ends at once in a VM with no exchange device (started outside bastion, or a template)
+     98-display: the desktop on the Looking Glass display alone, the Looking Glass display told by its device and made the only active display; the virt-manager console shows nothing while the Looking Glass display is the only active one; the configuration saved to Windows' display database ("the resulting topology, source, and target mode are saved to the database", Microsoft's SetDisplayConfig page); run.cmd display is the way back to the Looking Glass display after a repair
      99-repair: only by run.cmd repair: the virtio drivers from virtio\ (viostor for the disk, NetKVM for the network card, qxldod for the QXL video, which the virtio ISO holds for Windows 10 alone), the installers on the stick and the NVIDIA app, reinstalled
   assets\: the installers; attach.sh keeps the listed ones current and brings looking-glass-host.exe, the others are put here by hand (see below)
   resolution.txt: on the stick only, written by attach.sh for the VM it plugs into
@@ -115,6 +116,25 @@ with Microsoft fails, the way: in bastion on the host, set the VM's internet
 rule to open (v, the VM, internet rule), then run.cmd activation. When Windows
 is still not activated after it: "FAILED, Windows is not activated:" with
 LicenseStatus, its name and LicenseStatusReason.
+- "[display] ...": 98-display makes the Looking Glass display the only active
+display. "[display] the Looking Glass display device NAME: status S, code N"
+names the device found by the Looking Glass driver's hardware ids, "[display]
+the adapter PATH is the device NAME" each display adapter. "[display] making
+the Looking Glass display the only active display, saved to Windows' display
+database", then one "[display] made inactive: NAME" for each display it made
+inactive, by the name Windows gives it, then "[display] SetDisplayConfig:
+done", or "[display] SetDisplayConfig FAILED, code N (0x...): NAME" with
+Windows' code and its name. "[display] the Looking Glass display is already
+the only active display - nothing changed": nothing to do. Before a restart
+the Looking Glass display device or its driver may not be there yet: "...
+- waits for restart", and the run after the restart runs the module again;
+with no restart pending "... - skipped", and the line says what to run
+after Looking Glass is repaired: run.cmd display. Afterwards the desktop is
+on the Looking Glass display alone; the virt-manager console shows nothing
+while the Looking Glass display is the only active one. The configuration
+is saved to Windows' display database: "the resulting topology, source, and
+target mode are saved to the database" (Microsoft's SetDisplayConfig page).
+run.cmd display is the way back to the Looking Glass display after a repair.
 - "restart pending: ...": which restart mark or Windows value makes Looking
 Glass wait for a restart, or makes the run ask for a restart at its end.
 - "[lg-host] Looking Glass requires cumulative updates from Windows,
