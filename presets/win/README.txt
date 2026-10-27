@@ -36,7 +36,7 @@ LAYOUT:
      40-edge: remove Microsoft Edge
      45-ie: remove Internet Explorer
      50-debloat: consumer features off, Dev Home removed, Windows Backup shortcut removed
-     60-updates: no automatic Windows Update, no surprise reboots
+     60-updates: installs the updates Windows Update offers this Windows (downloaded from Microsoft: needs the VM's internet, may take long; without it, open the VM's internet rule, then run.cmd updates), then no automatic Windows Update, no surprise reboots
      70-grow-c: extend C: to fill the disk
      75-installers: install each installer in assets\installers.json that is missing or older, asking first where the list says so (System Informer)
      80-firefox: Firefox certs + AutoConfig prefs + uBlock/Dark Reader
@@ -83,6 +83,18 @@ meaning.
 - "start: INSTALLER ARGUMENTS", then "exit N (0x...)" or "FAILED, exit N
 (0x...)": an installer, started in its own window as always, and its exit
 code. A program that cannot be started: "FAILED, could not start ...".
+- "[updates] ...": 60-updates installs the updates Windows Update offers this
+Windows, downloaded from Microsoft; it needs the VM's internet and may take
+long, as its first line says. Before the download: each update's title and
+its size, "up to N MB". An update that can ask for input is skipped; for an
+update with a license, its text is shown and "accept the license of TITLE?
+(y/n)" asked, n skips it; an exclusive update is installed in an Install call
+of its own. After the install: "TITLE: result N NAME", 4 orcFailed and 5
+orcAborted with FAILED and the HResult; "restart mark set" names the update
+that needs the restart. When Search, Download or Install fails: "FAILED", the
+call, Windows' code and message, then the way: in bastion on the host, set
+the VM's internet rule to open (v, the VM, internet rule), then run.cmd
+updates.
 - "restart pending: ...": which restart mark or Windows value makes Looking
 Glass wait for a restart.
 - "summary: NAME done", "skipped" or "failed": one line per module at the

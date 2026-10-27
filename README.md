@@ -233,6 +233,7 @@ T is win10 or win11.
 
 The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
 The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
+The updates step installs the updates Windows Update offers that Windows, downloaded from Microsoft: it needs the VM's internet and may take long; the log shows each update's title, size and result. Without internet the log says FAILED: in bastion set the VM's internet rule to open (v, the VM, internet rule), then run run.cmd updates.
 
 Files placed by hand in ~/presets/win/assets, under these exact names:
 
@@ -265,7 +266,7 @@ Each VM's setup, once:
    run.cmd exchange
    ```
 
-A VM without internet needs it for that run: in bastion set its internet rule to open (v, the VM, internet rule), run run.cmd exchange in the VM, then set the rule back the same way.
+A VM without internet needs it for run.cmd exchange and for run.cmd updates: in bastion set its internet rule to open (v, the VM, internet rule), run run.cmd exchange or run.cmd updates in the VM, then set the rule back the same way.
 
 In Windows, a file to send goes into C:\Exchange\Outbox; a file sent to the VM arrives in C:\Exchange\Inbox.
 The host's inbox is /var/lib/exchange/inbox.
