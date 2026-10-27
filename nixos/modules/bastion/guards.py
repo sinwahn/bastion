@@ -190,9 +190,12 @@ def fast_first_of(pins, kind):
     return bool(pins) and kind.get(pins[0]) == "fast"
 
 
-def name_refusal(name, used, retired, name_max, prefixes):
+def name_refusal(name, used, retired, templates, name_max, prefixes):
     """The reason a new VM's name is refused, or None. The name is also its
-    cable's name on the switch."""
+    cable's name on the switch. used: the names of libvirt's VMs and the
+    names in use on the host; an entry in networks.json with no VM behind it
+    does not refuse its name. templates: the templates' names, refused since
+    a template's definition takes the entry of its name at Windows Setup."""
     if not re.fullmatch(r"[A-Za-z0-9-]+", name):
         return "letters, digits and dashes only."
     if len(name) > name_max:
@@ -204,6 +207,8 @@ def name_refusal(name, used, retired, name_max, prefixes):
         return f"{name} is already used."
     if name in retired:
         return f"a retired VM has this name; its disk and definition are kept in retired/{name}."
+    if name in templates:
+        return f"{name} is a template's name; the template takes its entry in networks.json at Windows Setup."
     return None
 
 

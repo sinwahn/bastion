@@ -108,7 +108,7 @@ On a summary screen: Enter goes on.
 ### v: VMs
 
 - The table: name, state, cores, RAM, disk, graphics, network, internet rule.
-- n: new VM (section 4).
+- n: new VM (section 4). A name that already has an entry in networks.json and no VM takes that entry's address and internet rule.
 - copy firmware and TPM: each VM's firmware variables and TPM state into ~/presets/bastion/state; a running VM is skipped.
 - restore: the VMs saved in ~/presets/bastion that are not defined now, definitions only or whole.
 - A VM's row opens its screen, with these actions:
