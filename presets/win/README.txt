@@ -37,6 +37,7 @@ LAYOUT:
      45-ie: remove Internet Explorer
      50-debloat: consumer features off, Dev Home removed, Windows Backup shortcut removed
      60-updates: installs the updates Windows Update offers this Windows (downloaded from Microsoft: needs the VM's internet, may take long; without it, open the VM's internet rule, then run.cmd updates), then no automatic Windows Update, no surprise reboots
+     65-activation: asks for the Windows product key at the console (typed, kept nowhere) and activates Windows with Microsoft (needs the VM's internet; without it, open the VM's internet rule, then run.cmd activation); an activated Windows is skipped
      70-grow-c: extend C: to fill the disk
      75-installers: install each installer in assets\installers.json that is missing or older, asking first where the list says so (System Informer)
      80-firefox: Firefox certs + AutoConfig prefs + uBlock/Dark Reader
@@ -101,6 +102,19 @@ that needs the restart. When Search, Download or Install fails: "FAILED", the
 call, Windows' code and message, then the way: in bastion on the host, set
 the VM's internet rule to open (v, the VM, internet rule), then run.cmd
 updates.
+- "[activation] ...": 65-activation activates Windows with a product key
+typed at the console; it needs the VM's internet. An activated Windows: "Windows
+is activated - skipped", and nothing is asked. Otherwise it asks "Windows
+product key (25 characters with dashes), or Enter to skip:"; the key typed is
+in no line and in no file. Enter: "no key typed - skipped; run.cmd activation
+to try again". With a key: "installed the typed key", "activating with
+Microsoft", then "Windows is activated". When a call fails: "FAILED", the
+call, Windows' code and message, and after "Microsoft:" the words Microsoft's
+activation errors page gives for that code, when it lists it. When activating
+with Microsoft fails, the way: in bastion on the host, set the VM's internet
+rule to open (v, the VM, internet rule), then run.cmd activation. When Windows
+is still not activated after it: "FAILED, Windows is not activated:" with
+LicenseStatus, its name and LicenseStatusReason.
 - "restart pending: ...": which restart mark or Windows value makes Looking
 Glass wait for a restart, or makes the run ask for a restart at its end.
 - "[lg-host] Looking Glass requires cumulative updates from Windows,
@@ -158,4 +172,4 @@ NOTES:
   - NVIDIA documents only the -s and -n switches of its driver installer; the
     driver keeps -s -noreboot -clean.
   - Still manual per VM, by design: the offline first-boot screens, your Windows
-    product key (typed only into the activation box), and the final resolution/scaling.
+    product key (typed at run.cmd activation's question or into the activation box), and the final resolution/scaling.
