@@ -1082,9 +1082,57 @@ def is_active(unit):
         return False
 
 
+def answer_point(point, seconds, send=""):
+    """The lines an answer point inside a service VM prints within seconds,
+    reached over vsock with socat (bastion.nix's firewallCheck and
+    wifiCheck); what it printed before the seconds ran out is kept, a fact
+    it did not print cannot be read."""
+    cmd = [CFG["socat"], "-t", str(seconds), "-", f"VSOCK-CONNECT:{point['cid']}:{point['port']}"]
+    try:
+        return subprocess.run(cmd, input=send, capture_output=True, text=True,
+                              timeout=seconds).stdout.splitlines()
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout or b""
+        return (out.decode(errors="replace") if isinstance(out, bytes) else out).splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+
+def cable_route(u):
+    """A cable's route now, as gate reads it: "vm" (rerouted through
+    firewall-vm, its card wifi-vm's) while its host profile does not connect
+    by itself, "ethernet" (direct to the host) while it does; its kind in
+    uplinks.nix while the profile is not made."""
+    try:
+        r = subprocess.run([CFG["nmcli"], "-g", "connection.autoconnect", "connection", "show", u["name"]],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return u["kind"]
+    return {"yes": "ethernet", "no": "vm"}.get(r.stdout.strip() if r.returncode == 0 else "", u["kind"])
+
+
+def route_line(u, route):
+    """The sentence of a cable's route (host-networks.nix)."""
+    return CFG["reroute"]["through" if route == "vm" else "direct"].format(
+        cable=u["name"], firewall=CFG["firewallVm"])
+
+
+def inside_facts(said):
+    """wifi-check's lines read: each uplink's facts inside wifi-vm by its
+    name, [up or not-up, allowed or not-allowed, metric], and wifi-vm's way
+    out, the words after "route" (NAME, none, or other and a device), None
+    when it said none."""
+    facts = {w[1]: w[2:5] for w in (x.split() for x in said) if len(w) >= 5 and w[0] == "uplink"}
+    route = next((x.split()[1:] for x in said if x.startswith("route ")), None)
+    return facts, route
+
+
 def uplink_lines():
-    """The host's uplinks as gate status reads them, without sudo; None when
-    NetworkManager refuses the read."""
+    """The host's uplinks as gate status reads them, without sudo, each
+    cable's route among them. An uplink whose way out is decided inside
+    wifi-vm (a rerouted cable, and the Wi-Fi while a cable is rerouted) is
+    read from wifi-check there, and so is the way out of the host's route
+    through the VMs. None when NetworkManager refuses the read."""
     def nm(*a):
         return subprocess.run([CFG["nmcli"], *a], capture_output=True, text=True, timeout=10)
     try:
@@ -1092,20 +1140,43 @@ def uplink_lines():
         if act.returncode:
             return None
         active = set(act.stdout.splitlines())
+        routes = {u["name"]: cable_route(u) for u in CFG["uplinks"] if u["cable"]}
+        rerouted = [n for n, r in routes.items() if r == "vm"]
+        inside = set(rerouted) | ({u["name"] for u in CFG["uplinks"] if u["path"]} if rerouted else set())
+        facts, vmroute = (inside_facts(answer_point(CFG["wifiCheck"], CFG["internetTimeout"]))
+                          if rerouted else ({}, None))
         lines = []
         low = None
         preferred = CFG["prefer"]
         for u in CFG["uplinks"]:
+            if u["name"] in rerouted:
+                continue
             m = nm("-g", "ipv4.route-metric", "connection", "show", u["name"])
             if m.returncode == 0 and m.stdout.strip().lstrip("-").isdigit():
                 if low is None or int(m.stdout.strip()) < low:
                     low = int(m.stdout.strip())
                     preferred = u["name"]
+        if preferred in inside:
+            metrics = [(int(f[2]), n) for n, f in facts.items() if f[2].lstrip("-").isdigit()]
+            if metrics:
+                preferred = min(metrics)[1]
         for u in CFG["uplinks"]:
-            nd = nm("-g", "ipv4.never-default", "connection", "show", u["name"])
-            allowed = "allowed" if nd.returncode == 0 and nd.stdout.strip() == "no" else "not allowed"
-            up = "up" if u["name"] in active else "not up"
-            lines.append(f"{u['name']}: {up}, {allowed}" + (", preferred" if u["name"] == preferred else ""))
+            n = u["name"]
+            if n in inside:
+                f = facts.get(n)
+                if f is None:
+                    lines.append(f"{n}: cannot be read: {CFG['wifiVm']} does not answer")
+                    continue
+                up = "up" if f[0] == "up" else "not up"
+                allowed = "allowed" if f[1] == "allowed" else "not allowed"
+            else:
+                nd = nm("-g", "ipv4.never-default", "connection", "show", n)
+                allowed = "allowed" if nd.returncode == 0 and nd.stdout.strip() == "no" else "not allowed"
+                up = "up" if n in active else "not up"
+            lines.append(f"{n}: {up}, {allowed}" + (", preferred" if n == preferred else ""))
+        for u in CFG["uplinks"]:
+            if u["cable"]:
+                lines.append(route_line(u, routes[u["name"]]))
         r = subprocess.run([CFG["ip"], "-4", "route", "show", "default"], capture_output=True, text=True, timeout=10)
         best = None
         for line in r.stdout.splitlines():
@@ -1115,8 +1186,17 @@ def uplink_lines():
             if dev and (best is None or metric < best[0]):
                 best = (metric, dev)
         names = {u["device"]: u["name"] for u in CFG["uplinks"]}
+        paths = {u["device"] for u in CFG["uplinks"] if u["path"]}
+        fw = CFG["firewallVm"]
         if best is None:
             route = "none"
+        elif best[1] in paths and rerouted and vmroute:
+            if vmroute[0] == "none":
+                route = "none"
+            elif vmroute[0] == "other":
+                route = f"through {fw}, out over {' '.join(vmroute[1:])}, not an uplink of uplinks.nix"
+            else:
+                route = f"{vmroute[0]}, through {fw}"
         elif best[1] in names:
             route = names[best[1]]
         else:
@@ -1228,18 +1308,6 @@ def path_check(name):
         except (OSError, subprocess.SubprocessError, ValueError):
             return []
 
-    def ask(point, seconds, send=""):
-        """The lines an answer point prints within seconds."""
-        cmd = [CFG["socat"], "-t", str(seconds), "-", f"VSOCK-CONNECT:{point['cid']}:{point['port']}"]
-        try:
-            return subprocess.run(cmd, input=send, capture_output=True, text=True,
-                                  timeout=seconds).stdout.splitlines()
-        except subprocess.TimeoutExpired as e:
-            out = e.stdout or b""
-            return (out.decode(errors="replace") if isinstance(out, bytes) else out).splitlines()
-        except (OSError, subprocess.SubprocessError):
-            return []
-
     lines = []
 
     def piece(subject, fact, wrong=None):
@@ -1308,7 +1376,7 @@ def path_check(name):
 
     # 4. firewall-vm's leg and the VM's line (firewall-check).
     got, tried = {}, []
-    for f in ask(CFG["firewallCheck"], 2 * wait, name + "\n"):
+    for f in answer_point(CFG["firewallCheck"], 2 * wait, name + "\n"):
         w = f.split()
         if w and w[0] == "tried":
             tried.append(w[1:])
@@ -1349,16 +1417,41 @@ def path_check(name):
 
     service(wifi)
 
-    # 7. wifi-vm's Wi-Fi (wifi-check).
-    card = next((x.split(None, 2) for x in ask(CFG["wifiCheck"], wait) if x.startswith("wifi ")), None)
+    # 7. wifi-vm's way out (wifi-check): its Wi-Fi, and each cable rerouted
+    # through firewall-vm, whose card it holds then. While one of them is
+    # wifi-vm's way out, another one not connected is no break.
+    said = answer_point(CFG["wifiCheck"], wait)
+    card = next((x.split(None, 2) for x in said if x.startswith("wifi ")), None)
+    facts, vmroute = inside_facts(said)
+    rerouted = [u["name"] for u in CFG["uplinks"] if u["cable"] and cable_route(u) == "vm"]
+    out = vmroute[0] if vmroute and vmroute[0] not in ("none", "other") else None
     subject = f"{wifi}'s Wi-Fi"
     if card and card[1] == "connected":
         piece(subject, f"connected to {card[2]}" if len(card) > 2 else "connected")
+    elif card and out in rerouted:
+        piece(subject, f"not connected, {wifi} goes out over {out}")
     elif card:
         piece(subject, "not connected", f"{wifi}'s Wi-Fi is not connected: {meaning[wifi]}. {gate_wifi}")
     else:
         piece(subject, f"cannot be read: {wifi} does not answer",
               f"{wifi}'s Wi-Fi cannot be read: {meaning[wifi]}. {restart[wifi]}")
+    for n in rerouted:
+        subject = f"{wifi}'s cable {n}"
+        f = facts.get(n)
+        if f is None:
+            piece(subject, f"cannot be read: {wifi} does not answer",
+                  f"{subject}: cannot be read: {wifi} does not answer. {restart[wifi]}")
+        elif f[0] == "up" and f[1] == "allowed":
+            piece(subject, "connected, allowed")
+        else:
+            fact = "not connected" if f[0] != "up" else "connected, not allowed"
+            if out is not None and out != n:
+                piece(subject, f"{fact}, {wifi} goes out over {out}")
+            elif f[0] == "up":
+                piece(subject, fact, f"{subject}: {fact}: {meaning[wifi]}. Do: gate {n}")
+            else:
+                piece(subject, fact, f"{subject}: {fact}: {meaning[wifi]}. "
+                                     f"Do: check that the cable is plugged in, or gate reroute {n} direct to host")
 
     # 8. internet from firewall-vm (firewall-check).
     subject = f"internet from {fw}"

@@ -946,8 +946,18 @@ let
     # waits for it (host-networks.nix).
     internet = hostNetworks.internet;
     internetTimeout = hostNetworks.internet-wait;
-    # The host's uplinks, read as gate status reads them.
-    uplinks = lib.mapAttrsToList (n: u: { name = n; inherit (u) device; }) ul.uplinks;
+    # The host's uplinks, read as gate status reads them: each with its
+    # device on the host, its kind (a cable's route at the start), whether
+    # it is a cable (a USB card, host.nix's cables) and whether it is the
+    # path through the VMs (the one with a gateway).
+    uplinks = lib.mapAttrsToList (n: u: {
+      name = n;
+      inherit (u) device kind;
+      cable = u ? vendor;
+      path = u ? gateway;
+    }) ul.uplinks;
+    # The sentences of a cable's route (host-networks.nix).
+    inherit (hostNetworks) reroute;
     inherit (ul) prefer;
     nmcli = "${config.networking.networkmanager.package}/bin/nmcli";
     ip = "${pkgs.iproute2}/bin/ip";
@@ -962,7 +972,7 @@ let
     inherit brokerVm;
     # The lines the broker section's transfers shows.
     inherit transfersLines;
-    wifiUplink = lib.head (lib.attrNames (lib.filterAttrs (n: u: u.kind == "vm") ul.uplinks));
+    wifiUplink = lib.head (lib.attrNames (lib.filterAttrs (n: u: u ? gateway) ul.uplinks));
     cables = map (c: { inherit (c) name; switch = hostNetworks.switches.${c.switch}; })
       (lib.attrValues hostNetworks.cables);
     firewallCheck = {

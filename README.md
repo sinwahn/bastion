@@ -308,11 +308,15 @@ Or b, the VM, clean its kept copies, then clean its kept copies again.
 UPLINK is an entry of uplinks.nix (wifi and ethernet in the example).
 
 - `gate status`: wifi-vm, firewall-vm, broker-vm, the switches and their cables, the uplinks and the way out, seen from the host.
-- `gate UPLINK`, for the uplink of kind "vm": wifi-vm's Wi-Fi screen (nmtui), then allow UPLINK: it may carry the host's route and DNS.
-- `gate UPLINK`, for an uplink of kind "ethernet": allow UPLINK: it may carry the host's route and DNS, by itself whenever plugged in.
-- `gate UPLINK off`: withdraw UPLINK: no route or DNS of the host over it; its link stays up.
+- `gate UPLINK`, for the uplink through the VMs (wifi in the example): wifi-vm's Wi-Fi screen (nmtui), then allow UPLINK: it may carry the host's route and DNS; while a cable is rerouted, the Wi-Fi inside wifi-vm may carry the way out of the host and every VM.
+- `gate UPLINK`, for a cable (ethernet in the example): allow UPLINK: it may carry the host's route and DNS, by itself whenever plugged in; while it is rerouted, inside wifi-vm, the way out of the host and every VM.
+- `gate UPLINK off`: withdraw UPLINK: no route or DNS over it, the host's, or while its allowance is inside wifi-vm the host's and every VM's; its link stays up.
 - `gate prefer UPLINK`: UPLINK carries the traffic when more than one is allowed and up.
+- `gate reroute CABLE through firewall-vm`: CABLE's card goes to wifi-vm; the host and every VM go out over CABLE through firewall-vm, every connection logged and ruled. The host's profile of CABLE stops connecting by itself, so the route stays after a restart, and the host never goes out over CABLE directly, not even while wifi-vm is stopped.
+- `gate reroute CABLE direct to host`: CABLE's card comes back to the host; only the host goes out over CABLE, nothing logged; the VMs go out over Wi-Fi.
 - `gate log [NAME]`: firewall-vm's log of NAME (or of all): names asked, connections made and refused.
+
+CABLE is an uplink of uplinks.nix with a USB card (ethernet in the example). Its kind there is its route when its host profile is first made: "vm" through firewall-vm, "ethernet" direct to the host. A machine that already has the profile keeps its route until gate reroute changes it.
 - `gate`: this list.
 
 ## 8. The private files

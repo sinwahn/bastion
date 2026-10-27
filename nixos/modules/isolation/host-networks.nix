@@ -27,6 +27,14 @@
 #   wifi-card the Wi-Fi card inside the Wi-Fi VM: net.nix names it by its
 #             driver (uplinks.nix), and the VM's saved Wi-Fi networks are
 #             bound to this name.
+#   reroute   the sentences of a cable's route (uplinks.nix): gate reroute
+#             prints the new one, gate status and the bastion tool show the
+#             one of now; each a format whose fields in braces are the names
+#             they carry: {cable} the cable's entry in uplinks.nix,
+#             {firewall} the firewall VM's name:
+#     through   its card is the Wi-Fi VM's, the way out of the host and of
+#               every VM;
+#     direct    its card is the host's alone.
 #   internet  the URL gate status fetches for its line "internet: yes" or
 #             "no"; the bastion tool reads the same, and firewall-check
 #             (gateway.nix) fetches it inside firewall-vm for the path check.
@@ -145,6 +153,10 @@
 {
   "networks.json" = "/var/lib/bastion/networks.json";
   wifi-card = "wifi-card";
+  reroute = {
+    through = "{cable} rerouted through {firewall}: the host and every VM now go out over the cable; every connection is logged and ruled.";
+    direct = "{cable} rerouted direct to the host: only the host goes out over the cable, nothing is logged; the VMs go out over Wi-Fi.";
+  };
   internet = "https://cache.nixos.org/nix-cache-info";
   internet-wait = 15;
   switches = {
@@ -157,8 +169,8 @@
     broker-vm = "broker-vm";
   };
   meanings = {
-    wifi-vm = "there is no internet over Wi-Fi";
-    firewall-vm = "the VMs have no way out, nor has the host over Wi-Fi";
+    wifi-vm = "there is no internet over Wi-Fi, nor over a cable rerouted through the firewall VM";
+    firewall-vm = "the VMs have no way out, nor has the host over Wi-Fi or a rerouted cable";
     broker-vm = "no file can be sent between the VMs";
   };
   exchange = {

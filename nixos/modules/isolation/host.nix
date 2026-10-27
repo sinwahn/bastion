@@ -7,6 +7,8 @@
 # - the host's uplinks of uplinks.nix: the path through the firewall VM
 #   (the host as a station behind it, 10.200.0.2, like every workstation)
 #   and the cable on the host, NetworkManager profiles made from the list;
+#   a cable's card is the host's, or rerouted through the firewall VM the
+#   Wi-Fi VM's (gate reroute; uplinks-reroute at each start of that VM);
 # - the host's cable on the workstations' switch, a veth pair: its port end
 #   on the switch, named after the host's entry in stations.nix, and its
 #   inner end, the device of the uplink wifi, carrying the host's address;
@@ -238,34 +240,58 @@ let
   ul = import ./uplinks.nix;
   up = ul.uplinks;
   names = lib.attrNames up;
-  vms = lib.filterAttrs (n: u: u.kind == "vm") up;
+  # The uplink through the VMs: the one with the firewall VM's address as
+  # its gateway.
+  vms = lib.filterAttrs (n: u: u ? gateway) up;
   # The gate word of the uplink through the VMs: gate with it opens the
   # Wi-Fi VM's Wi-Fi screen, the one thing to do for its Wi-Fi.
   wifiUplink = lib.head (lib.attrNames vms);
-  cables = lib.filterAttrs (n: u: u.kind == "ethernet") up;
+  # The cables: the uplinks with a USB card (vendor and product), each the
+  # host's or, rerouted through the firewall VM, the Wi-Fi VM's.
+  cables = lib.filterAttrs (n: u: u ? vendor) up;
+  cableNames = lib.attrNames cables;
   # The inner end of the host's cable on the workstations' switch: the
-  # device of the uplink of kind "vm".
+  # device of the uplink through the VMs.
   inner = (lib.head (lib.attrValues vms)).device;
   # Every uplink's profile is an ethernet profile: nmcli adds it as type
-  # ethernet and shows its type back as 802-3-ethernet.
-  declared = u: "connection.interface-name ${u.device} connection.autoconnect yes " + (
-    if u.kind == "vm" then
-      "ipv4.method manual ipv4.addresses ${hostIp}/${toString u.prefix} ipv4.gateway ${u.gateway}"
+  # ethernet and shows its type back as 802-3-ethernet. A cable's profile
+  # takes connection.autoconnect from its route only when it is made: it
+  # connects by itself only while the route is direct to the host, and so
+  # keeps the route across restarts (route in uplinksSh).
+  declared = u: "connection.interface-name ${u.device} " + (
+    if u ? gateway then
+      "connection.autoconnect yes ipv4.method manual ipv4.addresses ${hostIp}/${toString u.prefix} ipv4.gateway ${u.gateway}"
     else "ipv4.method auto");
+  made = u: lib.optionalString (u ? vendor)
+    "connection.autoconnect \${ac:-${if u.kind == "vm" then "no" else "yes"}}";
   # The DNS an allowed uplink gives the host: the firewall VM on the path
   # through the VMs; on a cable, the one its DHCP server names.
-  dns = u: if u.kind == "vm" then u.gateway else "";
+  dns = u: if u ? gateway then u.gateway else "";
+  # Gate's way to the Wi-Fi VM's QEMU: its control socket (microvm.nix),
+  # in that VM's state folder when it is not a whole path.
+  qmpSocket = let s = config.microvm.vms.${wifiVm}.config.config.microvm.socket; in
+    if lib.hasPrefix "/" s then s else "${config.microvm.stateDir}/${wifiVm}/${s}";
+  # wifi-check's vsock port, from the Wi-Fi VM's own module (net.nix).
+  wifiCheckPort = lib.last (lib.splitString ":" (lib.head
+    config.microvm.vms.${wifiVm}.config.config.systemd.sockets.wifi-check.listenStreams));
+  # The sentence of a cable's route (host-networks.nix, reroute): k is
+  # through or direct, n the cable.
+  rerouteLine = k: n: lib.replaceStrings [ "{cable}" "{firewall}" ] [ n firewallVm ] hostNetworks.reroute.${k};
   fields = "connection.interface-name,ipv4.method,ipv4.addresses,ipv4.gateway,ipv4.dns,ipv4.route-metric,ipv6.route-metric,ipv4.never-default,ipv6.never-default,ipv4.ignore-auto-dns,ipv6.ignore-auto-dns";
   # gate's help: one line per command, "gate WORDS: what it does".
   usage = [
     "gate status: ${lib.concatStringsSep ", " (lib.attrValues hostNetworks.vms)}, the switches and their cables, the uplinks and the way out, seen from the host"
   ] ++ lib.concatLists (lib.mapAttrsToList (n: u: [
-    ("gate ${n}: " + (if u.kind == "vm"
-      then "${wifiVm}'s Wi-Fi screen (nmtui), then allow ${n}: it may carry the host's route and DNS"
-      else "allow ${n}: it may carry the host's route and DNS, by itself whenever plugged in"))
-    "gate ${n} off: withdraw ${n}: no route or DNS of the host over it; its link stays up"
+    ("gate ${n}: " + (if u ? gateway
+      then "${wifiVm}'s Wi-Fi screen (nmtui), then allow ${n}: it may carry the host's route and DNS; while a cable is rerouted, the Wi-Fi inside ${wifiVm} may carry the way out of the host and every VM"
+      else "allow ${n}: it may carry the host's route and DNS, by itself whenever plugged in; while it is rerouted, inside ${wifiVm}, the way out of the host and every VM"))
+    "gate ${n} off: withdraw ${n}: no route or DNS over it, the host's, or while its allowance is inside ${wifiVm} the host's and every VM's; its link stays up"
   ]) up) ++ [
     "gate prefer NAME: NAME (${lib.concatStringsSep ", " names}) carries the traffic when more than one is allowed and up"
+  ] ++ lib.concatMap (n: [
+    "gate reroute ${n} through ${firewallVm}: ${n}'s card to ${wifiVm}: the host and every VM go out over ${n} through ${firewallVm}, every connection logged and ruled"
+    "gate reroute ${n} direct to host: ${n}'s card back to the host: only the host goes out over ${n}, nothing logged; the VMs go out over Wi-Fi"
+  ]) cableNames ++ [
     "gate log [NAME]: ${firewallVm}'s log of NAME (or of all): names asked, connections made and refused"
   ];
 
@@ -278,14 +304,92 @@ let
     }
     allowed() { [ "$(nm -g ipv4.never-default connection show "$1" 2>/dev/null)" = no ]; }
     active() { nm -g NAME connection show --active | grep -qxF "$1"; }
-    # The uplink preferred now: the profile with the lowest route metric;
-    # the list's starting value while no profile exists.
+    asroot() {
+      if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi
+    }
+    # route NAME: a cable's route now: "vm", through ${firewallVm}, its card
+    # ${wifiVm}'s; "ethernet", direct to the host. Its profile connects by
+    # itself only while the route is direct; the list's kind while the
+    # profile is not made.
+    route() {
+      case "$(nm -g connection.autoconnect connection show "$1" 2>/dev/null)" in
+      yes) echo ethernet ;;
+      no) echo vm ;;
+      *)
+        case "$1" in
+        ${lib.concatStrings (lib.mapAttrsToList (n: u: "${n}) echo ${u.kind} ;; ") cables)}esac
+        ;;
+      esac
+    }
+    # rerouted: the cables whose route goes through ${firewallVm}, on one line.
+    rerouted() {
+      rs=
+      for c in ${toString cableNames}; do
+        if [ "$(route "$c")" = vm ]; then rs="$rs $c"; fi
+      done
+      echo $rs
+    }
+    # inside NAME: NAME's allowance and metric are decided inside ${wifiVm}:
+    # a rerouted cable's, and the Wi-Fi's while a cable is rerouted.
+    inside() {
+      case "$1" in
+      ${wifiUplink}) [ -n "$(rerouted)" ] ;;
+      *) [ "$(route "$1")" = vm ] ;;
+      esac
+    }
+    # insidefacts: wifi-check's lines (net.nix), the Wi-Fi card's state and
+    # the facts of the uplinks inside ${wifiVm}; nothing when it does not
+    # answer within the seconds of internet-wait.
+    insidefacts() {
+      ${pkgs.socat}/bin/socat -t ${toString hostNetworks.internet-wait} - VSOCK-CONNECT:${vmCid wifiVm}:${wifiCheckPort} </dev/null 2>/dev/null
+    }
+    # qmp COMMAND: one command of QEMU's human monitor to ${wifiVm}'s QEMU
+    # over its control socket, sent as microvm.nix sends its own; fails,
+    # printing why, when the socket does not answer or the command printed
+    # anything (its error).
+    qmp() {
+      qr=$(printf '%s\n' '{"execute":"qmp_capabilities"}' "{\"execute\":\"human-monitor-command\",\"arguments\":{\"command-line\":\"$1\"}}" \
+        | asroot ${pkgs.socat}/bin/socat -t 2 STDIO UNIX:${qmpSocket},shut-none 2>&1) || { printf '%s\n' "$qr"; return 1; }
+      if printf '%s\n' "$qr" | grep -q '"return": ""'; then return 0; fi
+      printf '%s\n' "$qr" | ${pkgs.gnused}/bin/sed -n 's/.*"return": "\(.*\)"}.*/\1/p'
+      return 1
+    }
+    # held NAME: ${wifiVm}'s QEMU holds the device of the id NAME.
+    held() {
+      printf '%s\n' '{"execute":"qmp_capabilities"}' '{"execute":"qom-list","arguments":{"path":"/machine/peripheral"}}' \
+        | asroot ${pkgs.socat}/bin/socat -t 2 STDIO UNIX:${qmpSocket},shut-none 2>/dev/null \
+        | grep -q "\"name\": \"$1\""
+    }
+    # hand NAME: the cable NAME's card to ${wifiVm}'s QEMU, by its USB ids,
+    # under the id NAME (net.nix declares it so); take NAME: back from it,
+    # the host's driver taking the card again. Each does nothing when it is
+    # so already; take does nothing while ${wifiVm} is stopped.
+    hand() {
+      held "$1" && return 0
+      case "$1" in
+      ${lib.concatStrings (lib.mapAttrsToList (n: u: "${n}) qmp \"device_add usb-host,vendorid=0x${u.vendor},productid=0x${u.product},id=${n}\" ;; ") cables)}esac
+    }
+    take() {
+      held "$1" || return 0
+      qmp "device_del $1"
+    }
+    # The uplink preferred now: the host's profile with the lowest route
+    # metric, a rerouted cable's left out; while a cable is rerouted and
+    # that profile is the path through the VMs, the uplink inside ${wifiVm}
+    # with the lowest metric; the list's starting value while no profile
+    # exists.
     preferred() {
       p=${ul.prefer}; low=
+      rp=" $(rerouted) "
       for n in ${toString names}; do
+        case "$rp" in *" $n "*) continue ;; esac
         m=$(nm -g ipv4.route-metric connection show "$n" 2>/dev/null) || continue
         if [ -z "$low" ] || [ "$m" -lt "$low" ]; then low=$m; p=$n; fi
       done
+      if [ "$rp" != "  " ] && [ "$p" = ${wifiUplink} ]; then
+        v=$(insidefacts | ${pkgs.gawk}/bin/awk '$1 == "uplink" && (low == "" || $5 + 0 < low + 0) { low = $5; q = $2 } END { print q }')
+        if [ -n "$v" ]; then p=$v; fi
+      fi
       echo "$p"
     }
     # apply NAME FIELD VALUE ...: the fields into the profile; an active
@@ -302,27 +406,38 @@ let
   '';
 
   # The ensure step, one script for the unit uplinks-ensure and for gate:
-  # each profile made when missing (withdrawn), the list's fields put into
-  # it, the metric pair given by the uplink named as its argument, else by
-  # the one preferred now; the allowance is left as it is. A profile of
-  # another type (wifi was once a bridge profile) is removed
-  # and added again from the list, its allowance carried over.
+  # each profile made when missing (withdrawn; a cable's connecting by
+  # itself by its route in the list), the list's fields put into it, the
+  # metric pair given by the uplink named as its argument, else by the one
+  # preferred now; the allowance and a cable's route are left as they are.
+  # On the host the path through the VMs takes the preferred metric when
+  # the preferred uplink's way out is decided inside the Wi-Fi VM; a
+  # rerouted cable's profile takes the other one. A profile of another type
+  # (wifi was once a bridge profile) is removed and added again from the
+  # list, its allowance and its connecting by itself carried over.
   ensure = pkgs.writeShellScript "uplinks-ensure" ''
     set -u
     . ${uplinksSh}
     pref=''${1:-$(preferred)}
+    rp=" $(rerouted) "
     ${lib.concatStrings (lib.mapAttrsToList (n: u: ''
     nd=yes
+    ac=
     t=$(nm -g connection.type connection show ${n} 2>/dev/null) || t=
     if [ -n "$t" ] && [ "$t" != 802-3-ethernet ]; then
       if allowed ${n}; then nd=no; fi
+      ac=$(nm -g connection.autoconnect connection show ${n})
       nm connection delete ${n} >/dev/null
     fi
     nm connection show ${n} >/dev/null 2>&1 \
-      || nm connection add type ethernet con-name ${n} ${declared u} ipv4.never-default $nd ipv6.never-default $nd ipv4.ignore-auto-dns $nd ipv6.ignore-auto-dns $nd >/dev/null
+      || nm connection add type ethernet con-name ${n} ${declared u} ${made u} ipv4.never-default $nd ipv6.never-default $nd ipv4.ignore-auto-dns $nd ipv6.ignore-auto-dns $nd >/dev/null
     if allowed ${n}; then d="${dns u}"; else d=; fi
-    if [ "$pref" = ${n} ]; then m=${toString ul.metric.preferred}; else m=${toString ul.metric.others}; fi
-    apply ${n} ${declared u} ipv4.dns "$d" ipv4.route-metric "$m" ipv6.route-metric "$m"
+    m=${toString ul.metric.others}
+    ${if u ? gateway then ''
+    case " ${n}$rp" in *" $pref "*) m=${toString ul.metric.preferred} ;; esac
+    '' else ''
+    case "$rp" in *" ${n} "*) ;; *) if [ "$pref" = ${n} ]; then m=${toString ul.metric.preferred}; fi ;; esac
+    ''}apply ${n} ${declared u} ipv4.dns "$d" ipv4.route-metric "$m" ipv6.route-metric "$m"
     '') up)}'';
 
   gate = pkgs.writeShellScriptBin "gate" ''
@@ -346,24 +461,146 @@ let
         nm connection up "$1" >/dev/null 2>&1 || echo "$1 is not up now; it comes up by itself when its link is there."
       fi
     }
+    # dnsof NAME: the DNS NAME gives the host when it is allowed.
+    dnsof() {
+      case "$1" in
+      ${lib.concatStrings (lib.mapAttrsToList (n: u: "${n}) echo \"${dns u}\" ;; ") up)}esac
+    }
+    # set_allow NAME yes|no: the allowance where NAME's way out is decided:
+    # inside ${wifiVm} for a rerouted cable, and for the Wi-Fi while a cable
+    # is rerouted; on the host otherwise.
+    set_allow() {
+      if inside "$1"; then
+        ${wifiVm} uplinks allow "$1" "$2" || echo "STOP: ${wifiVm} did not take $1's allowance; the reason stands above. Do: gate status"
+      else
+        allow "$1" "$2" "$(dnsof "$1")"
+      fi
+    }
+    # prefer_set NAME: the metric pair by NAME, on the host (the ensure step)
+    # and, while a cable is rerouted, inside ${wifiVm}: there NAME takes the
+    # preferred metric when its way out is decided there, else the Wi-Fi
+    # does.
+    prefer_set() {
+      ${ensure} "$1"
+      rr=$(rerouted)
+      [ -n "$rr" ] || return 0
+      if inside "$1"; then q=$1; else q=${wifiUplink}; fi
+      for x in ${wifiUplink} $rr; do
+        if [ "$x" = "$q" ]; then m=${toString ul.metric.preferred}; else m=${toString ul.metric.others}; fi
+        ${wifiVm} uplinks metric "$x" "$m" || echo "STOP: ${wifiVm} did not take $x's metric; the reason stands above. Do: gate status"
+      done
+    }
+    # line through|direct CABLE: the sentence of the cable's route
+    # (host-networks.nix).
+    line() {
+      case "$1 $2" in
+      ${lib.concatMapStrings (n: ''
+      "through ${n}") echo ${lib.escapeShellArg (rerouteLine "through" n)} ;;
+      "direct ${n}") echo ${lib.escapeShellArg (rerouteLine "direct" n)} ;;
+      '') cableNames}esac
+    }
+    # through CABLE: CABLE rerouted through ${firewallVm}: its allowance
+    # carried into ${wifiVm}, and the Wi-Fi's when no cable was rerouted
+    # before; its card handed to ${wifiVm}; its host profile made not to
+    # connect by itself, which keeps the route; the host's path through the
+    # VMs allowed; the preference carried. Again on a rerouted cable: its
+    # card handed again when ${wifiVm}'s QEMU does not hold it.
+    through() {
+      if [ "$(route "$1")" = vm ]; then
+        hand "$1" || { echo "STOP: ${wifiVm}'s QEMU did not take $1's card; the reason stands above. Do: gate status"; return 1; }
+        line through "$1"
+        return 0
+      fi
+      p=$(preferred)
+      if allowed "$1"; then a=yes; else a=no; fi
+      ${wifiVm} uplinks allow "$1" "$a" || { echo "STOP: ${wifiVm} does not answer; $1 stays direct to the host. Do: gate status"; return 1; }
+      if [ -z "$(rerouted)" ]; then
+        if allowed ${wifiUplink}; then a=yes; else a=no; fi
+        ${wifiVm} uplinks allow ${wifiUplink} "$a" || { echo "STOP: ${wifiVm} does not answer; $1 stays direct to the host. Do: gate status"; return 1; }
+      fi
+      hand "$1" || { echo "STOP: ${wifiVm}'s QEMU did not take $1's card; $1 stays direct to the host. The reason stands above."; return 1; }
+      nm connection modify "$1" connection.autoconnect no
+      allow ${wifiUplink} yes "$(dnsof ${wifiUplink})"
+      prefer_set "$p"
+      line through "$1"
+    }
+    # direct CABLE: CABLE rerouted direct to the host: its card taken back
+    # from ${wifiVm}; its allowance carried back to its host profile, which
+    # connects by itself again; when no cable stays rerouted, the Wi-Fi's
+    # allowance carried back to the host's path through the VMs, and the
+    # Wi-Fi allowed again inside ${wifiVm}, where the VMs go out over it;
+    # the preference carried.
+    direct() {
+      if [ "$(route "$1")" = ethernet ]; then
+        take "$1" || { echo "STOP: ${wifiVm}'s QEMU did not give $1's card back; the reason stands above."; return 1; }
+        line direct "$1"
+        return 0
+      fi
+      p=$(preferred)
+      f=$(insidefacts)
+      a=$(printf '%s\n' "$f" | awk -v n="$1" '$1 == "uplink" && $2 == n { print (($4 == "allowed") ? "yes" : "no") }')
+      w=$(printf '%s\n' "$f" | awk -v n=${wifiUplink} '$1 == "uplink" && $2 == n { print (($4 == "allowed") ? "yes" : "no") }')
+      take "$1" || { echo "STOP: ${wifiVm}'s QEMU did not give $1's card back; $1 stays rerouted through ${firewallVm}. The reason stands above."; return 1; }
+      nm connection modify "$1" connection.autoconnect yes
+      if [ -z "$a" ]; then
+        echo "$1's allowance could not be read from ${wifiVm}: it is withdrawn. Do: gate $1"
+        a=no
+      fi
+      allow "$1" "$a" ""
+      if [ -z "$(rerouted)" ]; then
+        allow ${wifiUplink} "''${w:-yes}" "$(dnsof ${wifiUplink})"
+        ${wifiVm} uplinks allow ${wifiUplink} yes || echo "${wifiVm} did not take the Wi-Fi's allowance back, so the VMs may not go out over Wi-Fi. Do: gate ${wifiUplink}"
+      fi
+      prefer_set "$p"
+      line direct "$1"
+    }
     # The device of the host's default route with the lowest metric; empty
     # when the host has no default route.
     routedev() {
       ip -4 route show default | awk '{ m = 0; for (i = 1; i < NF; i++) { if ($i == "dev") d = $(i + 1); if ($i == "metric") m = $(i + 1) } print m, d }' | sort -n | head -n 1 | cut -d' ' -f2
     }
-    # uplinks: the facts of each uplink and of the host's route, one per
-    # line in the form status_print names, for gate status and, through
-    # status_lines, for gate NAME, gate NAME off and gate prefer.
+    # uplinks: the facts of each uplink, of each cable's route and of the
+    # host's route, one per line in the form status_print names, for gate
+    # status and, through status_lines, for gate NAME, gate NAME off, gate
+    # prefer and gate reroute. An uplink whose way out is decided inside
+    # ${wifiVm} is read from wifi-check there; so is the way out of the
+    # host's route through the VMs while a cable is rerouted.
     uplinks() {
       p=$(preferred)
+      rr=$(rerouted)
+      if [ -n "$rr" ]; then f=$(insidefacts); else f=; fi
       for n in ${toString names}; do
-        if active "$n"; then u=up; else u=not-up; fi
-        if allowed "$n"; then a=allowed; else a=not-allowed; fi
+        if inside "$n"; then
+          l=$(printf '%s\n' "$f" | awk -v n="$n" '$1 == "uplink" && $2 == n { print $3, $4 }')
+          case "$l" in
+          "") echo "uplink $n unreadable"; continue ;;
+          "up "*) u=up ;;
+          *) u=not-up ;;
+          esac
+          case "$l" in *" allowed") a=allowed ;; *) a=not-allowed ;; esac
+        else
+          if active "$n"; then u=up; else u=not-up; fi
+          if allowed "$n"; then a=allowed; else a=not-allowed; fi
+        fi
         if [ "$n" = "$p" ]; then echo "uplink $n $u $a preferred"; else echo "uplink $n $u $a other"; fi
       done
+      for n in ${toString cableNames}; do echo "reroute $n $(route "$n")"; done
       dev=$(routedev)
       case "$dev" in
-      ${lib.concatStrings (lib.mapAttrsToList (n: u: "${u.device}) echo \"route ${n}\" ;;\n      ") up)}"") echo "route none" ;;
+      ${inner})
+        if [ -n "$rr" ]; then
+          v=$(printf '%s\n' "$f" | sed -n 's/^route //p' | sed -n 1p)
+          case "$v" in
+          "") echo "route ${wifiUplink}" ;;
+          none) echo "route none" ;;
+          "other "*) echo "route other ''${v#other } through" ;;
+          *) echo "route $v through" ;;
+          esac
+        else
+          echo "route ${wifiUplink}"
+        fi
+        ;;
+      ${lib.concatStrings (lib.mapAttrsToList (n: u: "${u.device}) echo \"route ${n}\" ;;\n      ") cables)}"") echo "route none" ;;
       *) echo "route other $dev" ;;
       esac
     }
@@ -383,12 +620,19 @@ let
     #   wifi connected PROFILE | wifi not-connected | wifi unreadable
     #   switch NAME up|down CABLE,CABLE,... | switch NAME missing
     #   uplink NAME up|not-up allowed|not-allowed preferred|other
-    #   route UPLINK | route none | route other DEVICE
+    #   uplink NAME unreadable (its way out is decided inside ${wifiVm},
+    #     which does not answer)
+    #   reroute CABLE vm|ethernet
+    #   route UPLINK | route UPLINK through | route none
+    #   route other DEVICE | route other DEVICE through
+    #     (through: the host's route goes through ${firewallVm}, and UPLINK
+    #     or DEVICE is ${wifiVm}'s way out)
     #   internet yes | internet no
     # The first wrong piece goes on top with what it means and the one thing
     # to do, in this order: a service VM not running; a switch not there or
     # down; a cable not on its switch; ${wifiVm}'s Wi-Fi not connected or
-    # not readable; no route of the host; no internet. Then status_lines.
+    # not readable, unless a rerouted cable is ${wifiVm}'s way out; no route
+    # of the host; no internet. Then status_lines.
     status_print() {
       facts=$(cat)
       w=$(printf '%s\n' "$facts" | sed -n 's/^wifi //p')
@@ -418,11 +662,13 @@ let
               done
             fi
           done
-          case "$w" in
-          "" | connected*) ;;
-          not-connected) echo "${wifiVm}'s Wi-Fi is not connected: $(meaning ${wifiVm}). Do: gate ${wifiUplink}" ;;
-          *) echo "${wifiVm}'s Wi-Fi cannot be read: $(meaning ${wifiVm}). Do: gate ${wifiUplink}" ;;
-          esac
+          if ! printf '%s\n' "$facts" | grep -qE '^route (${lib.concatStringsSep "|" cableNames}) through$'; then
+            case "$w" in
+            "" | connected*) ;;
+            not-connected) echo "${wifiVm}'s Wi-Fi is not connected: $(meaning ${wifiVm}). Do: gate ${wifiUplink}" ;;
+            *) echo "${wifiVm}'s Wi-Fi cannot be read: $(meaning ${wifiVm}). Do: gate ${wifiUplink}" ;;
+            esac
+          fi
           if printf '%s\n' "$facts" | grep -qx 'route none'; then
             echo "the host's route: none. Do: ${lib.concatMapStringsSep " or " (n: "gate ${n}") names}"
           fi
@@ -480,6 +726,10 @@ let
           fi
           ;;
         uplink)
+          if [ "$s" = unreadable ]; then
+            echo "$n: cannot be read: ${wifiVm} does not answer"
+            continue
+          fi
           if [ "$s" = up ]; then l="$n: up"; else l="$n: not up"; fi
           case "$rest" in
           allowed*) l="$l, allowed" ;;
@@ -490,11 +740,22 @@ let
           esac
           echo "$l"
           ;;
+        reroute)
+          if [ "$s" = vm ]; then line through "$n"; else line direct "$n"; fi
+          ;;
         route)
           case "$n" in
           none) echo "the host's route: none" ;;
-          other) echo "the host's route: $s, not an uplink of uplinks.nix" ;;
-          *) echo "the host's route: $n" ;;
+          other)
+            if [ "$rest" = through ]; then
+              echo "the host's route: through ${firewallVm}, out over $s, not an uplink of uplinks.nix"
+            else
+              echo "the host's route: $s, not an uplink of uplinks.nix"
+            fi
+            ;;
+          *)
+            if [ "$s" = through ]; then echo "the host's route: $n, through ${firewallVm}"; else echo "the host's route: $n"; fi
+            ;;
           esac
           ;;
         internet) echo "internet: $n" ;;
@@ -505,12 +766,12 @@ let
     case "''${1:-}" in
     status)
       # The facts, read live: each service VM's unit; inside the running
-      # Wi-Fi VM, its Wi-Fi card's state (100: connected) and the saved
-      # network it is connected to, one value each, over one ssh that ends
-      # after the seconds of internet-wait with no answer, its Wi-Fi then
-      # unreadable; each switch of host-networks.nix and the devices on it,
-      # from one listing of the host's devices; each uplink; the host's
-      # route; the internet.
+      # Wi-Fi VM, its Wi-Fi card's state and the saved network it is
+      # connected to, as wifi-check answers within the seconds of
+      # internet-wait, its Wi-Fi unreadable without that answer; each switch
+      # of host-networks.nix and the devices on it, from one listing of the
+      # host's devices; each uplink; each cable's route; the host's route;
+      # the internet.
       {
         for v in ${toString (lib.attrValues hostNetworks.vms)}; do
           if [ "$(systemctl is-active microvm@$v.service)" != active ]; then
@@ -519,16 +780,8 @@ let
           fi
           echo "vm $v running"
           if [ "$v" = ${wifiVm} ]; then
-            if r=$(${wifiVm} 'nmcli -e no -g GENERAL.STATE device show ${hostNetworks.wifi-card} 2>/dev/null && nmcli -e no -g GENERAL.CONNECTION device show ${hostNetworks.wifi-card} 2>/dev/null'); then
-              s=$(printf '%s\n' "$r" | sed -n 1p)
-              if [ "''${s%% *}" = 100 ]; then
-                echo "wifi connected $(printf '%s\n' "$r" | sed -n 2p)"
-              else
-                echo "wifi not-connected"
-              fi
-            else
-              echo "wifi unreadable"
-            fi
+            wl=$(insidefacts | grep '^wifi ' | sed -n 1p)
+            echo "''${wl:-wifi unreadable}"
           fi
         done
         links=$(ip -j link show) || links='[]'
@@ -550,19 +803,30 @@ let
     ${lib.concatStrings (lib.mapAttrsToList (n: u: ''
     ${n})
       if [ "''${2:-}" = off ]; then
-        allow ${n} no
+        set_allow ${n} no
       else
-        ${lib.optionalString (u.kind == "vm") ''
+        ${lib.optionalString (u ? gateway) ''
         sudo ssh -i /root/.ssh/${wifiVm} -o StrictHostKeyChecking=accept-new \
           -o UserKnownHostsFile=/root/.ssh/known_hosts_${wifiVm} -t root@vsock/${vmCid wifiVm} nmtui
-        ''}allow ${n} yes "${dns u}"
+        ''}set_allow ${n} yes
       fi
       uplinks | status_lines
       ;;
     '') up)}prefer)
       case "''${2:-}" in
-      ${lib.concatMapStrings (n: "${n}) ${ensure} ${n} ;; ") names}*) echo "STOP: name an uplink of modules/isolation/uplinks.nix: ${toString names}."; exit 1 ;;
+      ${lib.concatMapStrings (n: "${n}) prefer_set ${n} ;; ") names}*) echo "STOP: name an uplink of modules/isolation/uplinks.nix: ${toString names}."; exit 1 ;;
       esac
+      uplinks | status_lines
+      ;;
+    reroute)
+      # The words after reroute, the fifth empty for "through".
+      case "''${2:-} ''${3:-} ''${4:-} ''${5:-}" in
+      ${lib.concatMapStrings (n: ''
+      "${n} through ${firewallVm} ") through ${n} || exit 1 ;;
+      "${n} direct to host") direct ${n} || exit 1 ;;
+      '') cableNames}*) echo ${lib.escapeShellArg "STOP: name a cable of modules/isolation/uplinks.nix (${toString cableNames}) and its route: gate reroute CABLE through ${firewallVm}, or gate reroute CABLE direct to host."}; exit 1 ;;
+      esac
+      echo
       uplinks | status_lines
       ;;
     log)
@@ -724,6 +988,41 @@ in
     path = [ pkgs.coreutils pkgs.gnugrep ];
     serviceConfig.Type = "oneshot";
     serviceConfig.ExecStart = "${ensure}";
+  };
+  # The Wi-Fi VM's QEMU runs as the group of microvm.nix's VM units: it may
+  # open each cable's card, to hold it while the cable is rerouted.
+  services.udev.extraRules = lib.concatStrings (lib.mapAttrsToList (n: u: ''
+    SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="${u.vendor}", ATTR{idProduct}=="${u.product}", GROUP="${config.systemd.services."microvm@".serviceConfig.Group}", MODE="0660"
+  '') cables);
+  # uplinks-reroute: each cable on its route whenever the Wi-Fi VM starts.
+  # Its QEMU holds every cable's card from its start (net.nix) and gives
+  # back the card of each cable whose route is direct to the host; the
+  # host's profile of such a cable then connects by itself again.
+  systemd.services.uplinks-reroute = {
+    description = "Each cable of uplinks.nix on its route when ${wifiVm} starts";
+    wantedBy = [ "microvm@${wifiVm}.service" ];
+    after = [ "microvm@${wifiVm}.service" "NetworkManager.service" ];
+    partOf = [ "microvm@${wifiVm}.service" ];
+    path = [ pkgs.coreutils pkgs.gnugrep ];
+    serviceConfig.Type = "oneshot";
+    serviceConfig.RemainAfterExit = true;
+    script = ''
+      . ${uplinksSh}
+      # QEMU's control socket appears once the VM's QEMU runs.
+      for i in $(seq 1 60); do
+        if [ -S ${qmpSocket} ]; then break; fi
+        sleep 1
+      done
+      rc=0
+      for n in ${toString cableNames}; do
+        if [ "$(route "$n")" = vm ]; then
+          hand "$n" || { echo "${wifiVm}'s QEMU did not take $n's card; the reason stands above."; rc=1; }
+        else
+          take "$n" || { echo "${wifiVm}'s QEMU did not give $n's card back; the reason stands above."; rc=1; }
+        fi
+      done
+      exit $rc
+    '';
   };
   # With two uplinks a reply may come in over the one that does not carry
   # the default route: drop a packet only when its source is reachable over
