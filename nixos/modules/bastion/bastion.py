@@ -1937,14 +1937,19 @@ class VmsScreen(Screen):
             return
         CHANGED.add(name)
         mac =ET.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("./devices/interface/mac").get("address")
-        # A name's entry taken over keeps its address; any other name gets the
-        # network's next free one.
-        st = nets["stations"].get(name)
-        ip = st["ip"] if st else free_address(nets, network)
-        entry = {"network": network, "ip": ip, "mac": mac, "rule": rule}
-        if rule == "listed":
-            entry["names"] = names
-        nets["stations"][name] = entry
+        # A name's entry taken over keeps every key it has, its mac the new
+        # VM's; any other name gets an entry with the network's next free
+        # address.
+        entry = nets["stations"].get(name)
+        if entry is not None:
+            entry["mac"] = mac
+            ip = entry["ip"]
+        else:
+            ip = free_address(nets, network)
+            entry = {"network": network, "ip": ip, "mac": mac, "rule": rule}
+            if rule == "listed":
+                entry["names"] = names
+            nets["stations"][name] = entry
         rc, out = write_networks(self.app, nets)
         self.action_read()
         if rc:
