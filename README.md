@@ -232,7 +232,7 @@ T is win10 or win11.
    ```
 
 The module words: shell, copy-path, context-menu, defender, edge, ie, debloat, updates, grow-c, installers, firefox, nvidia, lg-host, resolution, exchange, and repair, which runs only by `run.cmd repair`.
-The run.cmd window stays open at the end. The full log: C:\ProgramData\Bastion\setup.log
+The run.cmd window stays open at the end. The full log, with each module's end (done, skipped, waits for restart or failed): C:\ProgramData\Bastion\setup.log; before the silent Looking Glass install (lg-host) it says "[lg-host] Looking Glass requires cumulative updates from Windows, otherwise it will not work at all.", and the display driver starts after the restart that follows.
 The updates step installs the updates Windows Update offers that Windows, downloaded from Microsoft: it needs the VM's internet and may take long; the log shows each update's title, size and result. Without internet the log says FAILED: in bastion set the VM's internet rule to open (v, the VM, internet rule), then run run.cmd updates.
 
 Files placed by hand in ~/presets/win/assets, under these exact names:

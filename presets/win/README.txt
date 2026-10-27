@@ -41,7 +41,7 @@ LAYOUT:
      75-installers: install each installer in assets\installers.json that is missing or older, asking first where the list says so (System Informer)
      80-firefox: Firefox certs + AutoConfig prefs + uBlock/Dark Reader
      90-nvidia: install the NVIDIA app silently if present (the driver comes from 75-installers)
-     95-lg-host: install the Looking Glass host in its own installer window, only in a boot with no restart pending (see LOOKING GLASS below)
+     95-lg-host: install the Looking Glass host silently, no window to click through, only in a boot with no restart pending; it needs Windows' cumulative updates, and its display driver starts after a restart (see LOOKING GLASS below)
      96-resolution: lock the Looking Glass display at the size in resolution.txt, or let it follow the window
      97-exchange: the exchange of files between the VMs: the vsock driver, vstbridge, OpenSSH Server, the account exchange (only the host's key logs into it, SFTP only), C:\Exchange with Inbox and Outbox; ends at once in a VM with no exchange device (started outside bastion, or a template)
      99-repair: only by run.cmd repair: the virtio drivers from virtio\ (viostor for the disk, NetKVM for the network card, qxldod for the QXL video, which the virtio ISO holds for Windows 10 alone), the installers on the stick and the NVIDIA app, reinstalled
@@ -101,23 +101,41 @@ call, Windows' code and message, then the way: in bastion on the host, set
 the VM's internet rule to open (v, the VM, internet rule), then run.cmd
 updates.
 - "restart pending: ...": which restart mark or Windows value makes Looking
-Glass wait for a restart.
+Glass wait for a restart, or makes the run ask for a restart at its end.
+- "[lg-host] Looking Glass requires cumulative updates from Windows,
+otherwise it will not work at all.": stated before the Looking Glass
+installer starts, no check made. Then "start: ...looking-glass-host.exe
+/S", and "[lg-host] installed" with "[lg-host] restart mark set: the
+display driver starts after the restart of Windows", or "[lg-host] install
+FAILED, exit N (0x...)".
 - "summary: NAME done", "skipped" or "failed": one line per module at the
 end, then "Restart Windows to finish this setup." when a module asks for it.
 
 LOOKING GLASS (95-lg-host):
 It installs only in a boot with no restart pending. After a driver install
 (75-installers sets the restart mark) or while Windows itself reports a
-pending restart, it installs nothing and says "[lg-host] a restart is
-pending: restart Windows, then run.cmd lg-host". Otherwise it opens the
-installer's own window, as a double-click does: click through it to its
-end. setup.log then says "[lg-host] installed" or "[lg-host] install
-FAILED, exit N (0x...)".
+pending restart, it installs nothing, says "[lg-host] a restart is pending:
+waits for restart; after it the run goes on with lg-host by itself" and
+ends "waits for restart". The run asks at its end "Restart Windows now to
+finish this setup? (y/n)": y restarts Windows at once; n leaves the restart
+to you. At the next sign-in of an account of the Administrators group after
+the restart, Windows starts run.cmd lg-host from the PRESETS stick by
+itself; it asks for administrator rights once, then runs lg-host. A sign-in
+of an account outside Administrators starts nothing: it waits for an
+administrator's sign-in. When the stick was unplugged before the restart,
+run attach.sh NAME on the host again, then run.cmd lg-host in Windows. In a
+boot with no restart pending setup.log first says "[lg-host] Looking Glass
+requires cumulative updates from Windows, otherwise it will not work at
+all.", then the installer runs silently, with no window. setup.log then
+says "[lg-host] install FAILED, exit N (0x...)", or "[lg-host] installed"
+and "[lg-host] restart mark set: the display driver starts after the
+restart of Windows"; the run then asks at its end for that restart, as
+above.
 A VM where the Looking Glass install crashed (setup.log says "installer exit
 -1073741819" or "[lg-host] install FAILED"):
 1. In Windows' installed apps (Settings, Apps), uninstall "Looking Glass (IDD)".
 2. Restart Windows.
-3. Run run.cmd lg-host and click through the installer's window.
+3. Run run.cmd lg-host; the installer runs silently, with no window.
 
 NOTES:
   - Default browser cannot be set by a script on Windows 10 (the choice is hash-
