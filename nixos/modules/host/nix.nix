@@ -1,11 +1,6 @@
-# /etc/nixos/modules/host/nix.nix
-# Nix itself: the nix command and flakes, git for the standard repository,
-# and a guard that keeps the checking of package signatures at its defaults.
-
 { config, pkgs, ... }:
 
 {
-  # Turn on the nix command and flakes.
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # git, because the standard repository is a git repository.
@@ -15,9 +10,9 @@
     e2fsprogs
   ];
 
-  # Guard. These lines add nothing to the built system. They stop a rebuild
-  # with an error if any setting turns signature checking off, adds another
-  # binary cache, or trusts another signing key.
+  # These lines add nothing to the built system. They stop a rebuild with an
+  # error if any setting turns signature checking off, adds another binary
+  # cache, or trusts another signing key.
   assertions = [
     {
       assertion = config.nix.settings.require-sigs == true;

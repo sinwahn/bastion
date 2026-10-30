@@ -1,9 +1,7 @@
-# /etc/nixos/modules/host/firmware.nix
-# Firmware: fwupd, which reads the list of available firmware from LVFS.
-# Installing firmware is always a separate decision with its own steps.
-# A plugin of fwupd that a machine turns off is set in its own folder
+# fwupd only reads the list of available firmware from LVFS: installing
+# firmware is always a separate decision with its own steps. A plugin of
+# fwupd that a machine turns off is set in its own folder
 # (hosts/bastion/default.nix).
-
 { config, pkgs, ... }:
 
 {

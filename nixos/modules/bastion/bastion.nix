@@ -1,11 +1,12 @@
 # /etc/nixos/modules/bastion/bastion.nix
 # The bastion tool: the command "bastion" on the host, an interactive terminal
-# program (bastion.py and guards.py beside this file, Python with textual)
+# program (bastion.py and its user, model and system folders beside this
+# file, Python with textual)
 # that makes and changes the VMs without editing a file and without a
 # rebuild. The VMs live in libvirt's own store (/var/lib/libvirt/qemu); each
 # VM's address and internet rule live in the live data file of
-# host-networks.nix, applied by networks-apply (host.nix) and firewall-apply
-# (gateway.nix). This file holds only the host's own setup:
+# host-networks.nix, applied by networks-apply (networks-apply.nix) and firewall-apply
+# (firewall-rules.nix). This file holds only the host's own setup:
 # - the templates (the template list) and the host's share;
 # - the program and the settings it is handed (a JSON file, its first
 #   argument);
@@ -36,8 +37,8 @@
 #   or to the host's inbox through broker-vm, lists a VM's Outbox, shows
 #   broker-vm's log, cleans a VM's kept copies and reads their figures.
 # The networks section's path check reads, as the user, the two answer
-# points inside the service VMs: firewall-check (gateway.nix) and wifi-check
-# (net.nix), over vsock with socat.
+# points inside the service VMs: firewall-check (firewall-rules.nix) and wifi-check
+# (wifi-vm-uplinks.nix), over vsock with socat.
 { config, lib, pkgs, ... }:
 
 let
@@ -96,8 +97,8 @@ let
     mkdir -p $out
     bsdtar -xf ${pkgs.virtio-win.src} -C $out viosock
   '';
-  # The driver folders for the devices of the program's VMs (bastion.py's
-  # domain_xml), from the extracted virtio-win tree nixpkgs builds, its
+  # The driver folders for the devices of the program's VMs (its
+  # model/WindowsDefinition.py), from the extracted virtio-win tree nixpkgs builds, its
   # output the ISO's root (nixpkgs pkgs/by-name/vi/virtio-win/package.nix
   # 21 and 26-27); each folder's name and its w10/amd64 and w11/amd64
   # subfolders as the ISO's own file listing names them: viostor for the
@@ -173,7 +174,8 @@ let
 
   # The first vsock number of the VMs the program starts: at each start it
   # gives the VM, for that start only, the lowest number from this one up
-  # that no running VM holds (bastion.py's start_plan and set_vsock); every
+  # that no running VM holds (its model/StartPlanning.py and
+  # model/DefinitionEdit.py's set_vsock); every
   # service VM's number, read from its own module, lies below it (the
   # assertion at the end of this file).
   vsockFirst = 100;
@@ -185,7 +187,7 @@ let
   # What networks-apply and firewall-apply refuse in networks.json, the same
   # checks as theirs, a station's resolution (the screen size its Windows is
   # locked at, which only the program reads) that is not WIDTHxHEIGHT, and a
-  # station's list of destinations (which broker-vm reads, broker.nix) that
+  # station's list of destinations (which broker-vm reads, broker-vm.nix) that
   # is there and not a list of names; true when the file holds what all of
   # them read.
   networksCheck = ''
@@ -472,11 +474,11 @@ let
 
   # The exchange step's paths, from host-networks.nix's exchange or derived
   # by one naming rule: the host's key for broker-vm,
-  # named after it in the folder of the exchange key (broker.nix makes
+  # named after it in the folder of the exchange key (broker-vm.nix makes
   # both); each known-hosts file named after what it reaches, broker-vm or
   # the accounts of the exchange key, in that folder; the folder of a send
   # stopped after the take, inside staging; broker-vm's journal folder on
-  # the host, as gate log reads firewall-vm's (host.nix): the journal
+  # the host, as gate log reads firewall-vm's (service-vm-locations.nix): the journal
   # share's folder and the VM's machine id without its dashes.
   sshDir = dirOf exchange.key;
   brokerKey = "${sshDir}/${brokerVm}";
@@ -485,7 +487,7 @@ let
   failedDir = "${exchange.staging}/${exchange.failed}";
   brokerJournal = "${config.microvm.stateDir}/${brokerVm}/journal/${lib.replaceStrings [ "-" ] [ "" ] brokerConfig.microvm.machineId}";
   # The lines the broker section's transfers shows: the last ones, as gate
-  # log shows firewall-vm's (host.nix); the command shows all.
+  # log shows firewall-vm's (gate.nix); the command shows all.
   transfersLines = 300;
 
   # The exchange step's words, each a shell variable named by its group and
@@ -583,7 +585,7 @@ let
     }
     # note EVENT FROM TO NAME BYTES SHA256 REASON: the line of the parts
     # given (an empty one is left out) into the journal under this step's
-    # name, in the form and the words of broker-vm's lines (broker.nix); it
+    # name, in the form and the words of broker-vm's lines (broker-program.sh); it
     # stays in l.
     note() {
       l=$1
@@ -948,7 +950,7 @@ let
     internetTimeout = hostNetworks.internet-wait;
     # The host's uplinks, read as gate status reads them: each with its
     # device on the host, its kind (a cable's route at the start), whether
-    # it is a cable (a USB card, host.nix's cables) and whether it is the
+    # it is a cable (a USB card, uplink-roles.nix's cables) and whether it is the
     # path through the VMs (the one with a gateway).
     uplinks = lib.mapAttrsToList (n: u: {
       name = n;
@@ -963,7 +965,7 @@ let
     ip = "${pkgs.iproute2}/bin/ip";
     # The path check of the networks section: the cables of host-networks.nix
     # with their switches; the gate word that opens wifi-vm's Wi-Fi screen
-    # (the uplink through the VMs of uplinks.nix, as host.nix finds it); the
+    # (the uplink through the VMs of uplinks.nix, as uplink-roles.nix finds it); the
     # two answer points inside the service VMs, each by its VM's vsock number
     # and the port its socket listens on, from that VM's own module, reached
     # with socat as networks-write reaches firewall-apply.
@@ -1001,7 +1003,183 @@ let
   python = pkgs.python3.withPackages (ps: [ ps.libvirt ps.textual ]);
   program = pkgs.runCommand "${command}-program" { } ''
     install -D -m 0644 ${./bastion.py} $out/bastion.py
-    install -D -m 0644 ${./guards.py} $out/guards.py
+    install -D -m 0644 ${./model/__init__.py} $out/model/__init__.py
+    install -D -m 0644 ${./model/AnswerPlace.py} $out/model/AnswerPlace.py
+    install -D -m 0644 ${./model/Cable.py} $out/model/Cable.py
+    install -D -m 0644 ${./model/CableEdit.py} $out/model/CableEdit.py
+    install -D -m 0644 ${./model/CacheBank.py} $out/model/CacheBank.py
+    install -D -m 0644 ${./model/Changes.py} $out/model/Changes.py
+    install -D -m 0644 ${./model/Configuration.py} $out/model/Configuration.py
+    install -D -m 0644 ${./model/ConfigurationReading.py} $out/model/ConfigurationReading.py
+    install -D -m 0644 ${./model/CpuSet.py} $out/model/CpuSet.py
+    install -D -m 0644 ${./model/DefinitionCopy.py} $out/model/DefinitionCopy.py
+    install -D -m 0644 ${./model/DefinitionEdit.py} $out/model/DefinitionEdit.py
+    install -D -m 0644 ${./model/DefinitionFigures.py} $out/model/DefinitionFigures.py
+    install -D -m 0644 ${./model/DefinitionFragments.py} $out/model/DefinitionFragments.py
+    install -D -m 0644 ${./model/DefinitionRequest.py} $out/model/DefinitionRequest.py
+    install -D -m 0644 ${./model/DisplayModes.py} $out/model/DisplayModes.py
+    install -D -m 0644 ${./model/ExchangeWords.py} $out/model/ExchangeWords.py
+    install -D -m 0644 ${./model/FollowOutcome.py} $out/model/FollowOutcome.py
+    install -D -m 0644 ${./model/Gigabytes.py} $out/model/Gigabytes.py
+    install -D -m 0644 ${./model/GlassCommand.py} $out/model/GlassCommand.py
+    install -D -m 0644 ${./model/GlassSettings.py} $out/model/GlassSettings.py
+    install -D -m 0644 ${./model/GraphicsDevice.py} $out/model/GraphicsDevice.py
+    install -D -m 0644 ${./model/GraphicsDevicesReading.py} $out/model/GraphicsDevicesReading.py
+    install -D -m 0644 ${./model/Host.py} $out/model/Host.py
+    install -D -m 0644 ${./model/HostAccess.py} $out/model/HostAccess.py
+    install -D -m 0644 ${./model/HostReading.py} $out/model/HostReading.py
+    install -D -m 0644 ${./model/HostShare.py} $out/model/HostShare.py
+    install -D -m 0644 ${./model/HostThreads.py} $out/model/HostThreads.py
+    install -D -m 0644 ${./model/IpRange.py} $out/model/IpRange.py
+    install -D -m 0644 ${./model/LiveDataFile.py} $out/model/LiveDataFile.py
+    install -D -m 0644 ${./model/LiveDataFileContent.py} $out/model/LiveDataFileContent.py
+    install -D -m 0644 ${./model/LiveDataFormat.py} $out/model/LiveDataFormat.py
+    install -D -m 0644 ${./model/LiveDataWriting.py} $out/model/LiveDataWriting.py
+    install -D -m 0644 ${./model/NetworkEntry.py} $out/model/NetworkEntry.py
+    install -D -m 0644 ${./model/NetworkIps.py} $out/model/NetworkIps.py
+    install -D -m 0644 ${./model/NetworksCopy.py} $out/model/NetworksCopy.py
+    install -D -m 0644 ${./model/NetworksFailure.py} $out/model/NetworksFailure.py
+    install -D -m 0644 ${./model/Offers.py} $out/model/Offers.py
+    install -D -m 0644 ${./model/PciFunction.py} $out/model/PciFunction.py
+    install -D -m 0644 ${./model/PciFunctions.py} $out/model/PciFunctions.py
+    install -D -m 0644 ${./model/PickSteps.py} $out/model/PickSteps.py
+    install -D -m 0644 ${./model/PinnedThreads.py} $out/model/PinnedThreads.py
+    install -D -m 0644 ${./model/ProgramPaths.py} $out/model/ProgramPaths.py
+    install -D -m 0644 ${./model/Redefinition.py} $out/model/Redefinition.py
+    install -D -m 0644 ${./model/Refusals.py} $out/model/Refusals.py
+    install -D -m 0644 ${./model/RerouteSentences.py} $out/model/RerouteSentences.py
+    install -D -m 0644 ${./model/RestoreResult.py} $out/model/RestoreResult.py
+    install -D -m 0644 ${./model/ServiceVm.py} $out/model/ServiceVm.py
+    install -D -m 0644 ${./model/StartPlan.py} $out/model/StartPlan.py
+    install -D -m 0644 ${./model/StartPlanning.py} $out/model/StartPlanning.py
+    install -D -m 0644 ${./model/State.py} $out/model/State.py
+    install -D -m 0644 ${./model/StateReading.py} $out/model/StateReading.py
+    install -D -m 0644 ${./model/StateVms.py} $out/model/StateVms.py
+    install -D -m 0644 ${./model/StationEdit.py} $out/model/StationEdit.py
+    install -D -m 0644 ${./model/StationEntry.py} $out/model/StationEntry.py
+    install -D -m 0644 ${./model/StationFollow.py} $out/model/StationFollow.py
+    install -D -m 0644 ${./model/SystemFailures.py} $out/model/SystemFailures.py
+    install -D -m 0644 ${./model/Template.py} $out/model/Template.py
+    install -D -m 0644 ${./model/Templates.py} $out/model/Templates.py
+    install -D -m 0644 ${./model/Uplink.py} $out/model/Uplink.py
+    install -D -m 0644 ${./model/Vm.py} $out/model/Vm.py
+    install -D -m 0644 ${./model/VmReading.py} $out/model/VmReading.py
+    install -D -m 0644 ${./model/VmStart.py} $out/model/VmStart.py
+    install -D -m 0644 ${./model/WindowsDefinition.py} $out/model/WindowsDefinition.py
+    install -D -m 0644 ${./model/enums.py} $out/model/enums.py
+    install -D -m 0644 ${./model/errors.py} $out/model/errors.py
+    install -D -m 0644 ${./model/glass_options/__init__.py} $out/model/glass_options/__init__.py
+    install -D -m 0644 ${./model/glass_options/KeyOption.py} $out/model/glass_options/KeyOption.py
+    install -D -m 0644 ${./model/glass_options/YesNoOption.py} $out/model/glass_options/YesNoOption.py
+    install -D -m 0644 ${./model/preferences/__init__.py} $out/model/preferences/__init__.py
+    install -D -m 0644 ${./model/preferences/DenseFirst.py} $out/model/preferences/DenseFirst.py
+    install -D -m 0644 ${./model/preferences/FastFirst.py} $out/model/preferences/FastFirst.py
+    install -D -m 0644 ${./model/starts/__init__.py} $out/model/starts/__init__.py
+    install -D -m 0644 ${./model/starts/FirstStart.py} $out/model/starts/FirstStart.py
+    install -D -m 0644 ${./model/starts/OrdinaryStart.py} $out/model/starts/OrdinaryStart.py
+    install -D -m 0644 ${./system/__init__.py} $out/system/__init__.py
+    install -D -m 0644 ${./system/AnswerPoint.py} $out/system/AnswerPoint.py
+    install -D -m 0644 ${./system/CopyFolder.py} $out/system/CopyFolder.py
+    install -D -m 0644 ${./system/DiskSizes.py} $out/system/DiskSizes.py
+    install -D -m 0644 ${./system/FirewallCheck.py} $out/system/FirewallCheck.py
+    install -D -m 0644 ${./system/GlassClientFile.py} $out/system/GlassClientFile.py
+    install -D -m 0644 ${./system/GlassClientPlaces.py} $out/system/GlassClientPlaces.py
+    install -D -m 0644 ${./system/HostFiles.py} $out/system/HostFiles.py
+    install -D -m 0644 ${./system/HostInternet.py} $out/system/HostInternet.py
+    install -D -m 0644 ${./system/HostWindows.py} $out/system/HostWindows.py
+    install -D -m 0644 ${./system/KernelRoutes.py} $out/system/KernelRoutes.py
+    install -D -m 0644 ${./system/LibvirtConnection.py} $out/system/LibvirtConnection.py
+    install -D -m 0644 ${./system/LibvirtConnections.py} $out/system/LibvirtConnections.py
+    install -D -m 0644 ${./system/Log.py} $out/system/Log.py
+    install -D -m 0644 ${./system/NixDomains.py} $out/system/NixDomains.py
+    install -D -m 0644 ${./system/PrivilegedSteps.py} $out/system/PrivilegedSteps.py
+    install -D -m 0644 ${./system/ServiceUnits.py} $out/system/ServiceUnits.py
+    install -D -m 0644 ${./system/SharedMemoryDevice.py} $out/system/SharedMemoryDevice.py
+    install -D -m 0644 ${./system/ShellCommands.py} $out/system/ShellCommands.py
+    install -D -m 0644 ${./system/SleepHold.py} $out/system/SleepHold.py
+    install -D -m 0644 ${./system/StickFiles.py} $out/system/StickFiles.py
+    install -D -m 0644 ${./system/SwitchPorts.py} $out/system/SwitchPorts.py
+    install -D -m 0644 ${./system/UplinkProfiles.py} $out/system/UplinkProfiles.py
+    install -D -m 0644 ${./system/WifiCheck.py} $out/system/WifiCheck.py
+    install -D -m 0644 ${./system/enums.py} $out/system/enums.py
+    install -D -m 0644 ${./system/errors.py} $out/system/errors.py
+    install -D -m 0644 ${./user/__init__.py} $out/user/__init__.py
+    install -D -m 0644 ${./user/AppliedLine.py} $out/user/AppliedLine.py
+    install -D -m 0644 ${./user/BastionScreens.py} $out/user/BastionScreens.py
+    install -D -m 0644 ${./user/BrokerLines.py} $out/user/BrokerLines.py
+    install -D -m 0644 ${./user/BrokerScreen.py} $out/user/BrokerScreen.py
+    install -D -m 0644 ${./user/BrokerTransfers.py} $out/user/BrokerTransfers.py
+    install -D -m 0644 ${./user/BrokerUsage.py} $out/user/BrokerUsage.py
+    install -D -m 0644 ${./user/CommandLine.py} $out/user/CommandLine.py
+    install -D -m 0644 ${./user/CopyNotice.py} $out/user/CopyNotice.py
+    install -D -m 0644 ${./user/CopyPrint.py} $out/user/CopyPrint.py
+    install -D -m 0644 ${./user/DestinationsChange.py} $out/user/DestinationsChange.py
+    install -D -m 0644 ${./user/DevicesScreen.py} $out/user/DevicesScreen.py
+    install -D -m 0644 ${./user/ExchangeStepOnScreen.py} $out/user/ExchangeStepOnScreen.py
+    install -D -m 0644 ${./user/ExchangeStepRun.py} $out/user/ExchangeStepRun.py
+    install -D -m 0644 ${./user/FastFirstAnswers.py} $out/user/FastFirstAnswers.py
+    install -D -m 0644 ${./user/FileSending.py} $out/user/FileSending.py
+    install -D -m 0644 ${./user/FirewallWarning.py} $out/user/FirewallWarning.py
+    install -D -m 0644 ${./user/FirmwareCopy.py} $out/user/FirmwareCopy.py
+    install -D -m 0644 ${./user/GlassChanges.py} $out/user/GlassChanges.py
+    install -D -m 0644 ${./user/GlassScreen.py} $out/user/GlassScreen.py
+    install -D -m 0644 ${./user/GraphicsChoices.py} $out/user/GraphicsChoices.py
+    install -D -m 0644 ${./user/HelpText.py} $out/user/HelpText.py
+    install -D -m 0644 ${./user/HostLines.py} $out/user/HostLines.py
+    install -D -m 0644 ${./user/NamesScreen.py} $out/user/NamesScreen.py
+    install -D -m 0644 ${./user/NetworkLines.py} $out/user/NetworkLines.py
+    install -D -m 0644 ${./user/NetworkMaking.py} $out/user/NetworkMaking.py
+    install -D -m 0644 ${./user/NetworksScreen.py} $out/user/NetworksScreen.py
+    install -D -m 0644 ${./user/NewNetwork.py} $out/user/NewNetwork.py
+    install -D -m 0644 ${./user/NewNetworkQuestions.py} $out/user/NewNetworkQuestions.py
+    install -D -m 0644 ${./user/NewVm.py} $out/user/NewVm.py
+    install -D -m 0644 ${./user/NewVmQuestions.py} $out/user/NewVmQuestions.py
+    install -D -m 0644 ${./user/PathCheck.py} $out/user/PathCheck.py
+    install -D -m 0644 ${./user/PathPieces.py} $out/user/PathPieces.py
+    install -D -m 0644 ${./user/PathScreen.py} $out/user/PathScreen.py
+    install -D -m 0644 ${./user/PathServicePieces.py} $out/user/PathServicePieces.py
+    install -D -m 0644 ${./user/PicksScreen.py} $out/user/PicksScreen.py
+    install -D -m 0644 ${./user/PlainText.py} $out/user/PlainText.py
+    install -D -m 0644 ${./user/Question.py} $out/user/Question.py
+    install -D -m 0644 ${./user/QuestionScreen.py} $out/user/QuestionScreen.py
+    install -D -m 0644 ${./user/ReachChange.py} $out/user/ReachChange.py
+    install -D -m 0644 ${./user/RuleChange.py} $out/user/RuleChange.py
+    install -D -m 0644 ${./user/ScreenSteps.py} $out/user/ScreenSteps.py
+    install -D -m 0644 ${./user/ServiceLines.py} $out/user/ServiceLines.py
+    install -D -m 0644 ${./user/StationMove.py} $out/user/StationMove.py
+    install -D -m 0644 ${./user/StatusReport.py} $out/user/StatusReport.py
+    install -D -m 0644 ${./user/StatusScreen.py} $out/user/StatusScreen.py
+    install -D -m 0644 ${./user/TemplateArgument.py} $out/user/TemplateArgument.py
+    install -D -m 0644 ${./user/TemplateDefinition.py} $out/user/TemplateDefinition.py
+    install -D -m 0644 ${./user/TerminalSteps.py} $out/user/TerminalSteps.py
+    install -D -m 0644 ${./user/TextScreen.py} $out/user/TextScreen.py
+    install -D -m 0644 ${./user/TypedAnswerScreen.py} $out/user/TypedAnswerScreen.py
+    install -D -m 0644 ${./user/UplinkStatus.py} $out/user/UplinkStatus.py
+    install -D -m 0644 ${./user/VmDiskGrowth.py} $out/user/VmDiskGrowth.py
+    install -D -m 0644 ${./user/VmLines.py} $out/user/VmLines.py
+    install -D -m 0644 ${./user/VmMaking.py} $out/user/VmMaking.py
+    install -D -m 0644 ${./user/VmRetirement.py} $out/user/VmRetirement.py
+    install -D -m 0644 ${./user/VmScreen.py} $out/user/VmScreen.py
+    install -D -m 0644 ${./user/VmSettingChanges.py} $out/user/VmSettingChanges.py
+    install -D -m 0644 ${./user/VmStartOnScreen.py} $out/user/VmStartOnScreen.py
+    install -D -m 0644 ${./user/VmWait.py} $out/user/VmWait.py
+    install -D -m 0644 ${./user/VmsRestore.py} $out/user/VmsRestore.py
+    install -D -m 0644 ${./user/VmsScreen.py} $out/user/VmsScreen.py
+    install -D -m 0644 ${./user/enums.py} $out/user/enums.py
+    install -D -m 0644 ${./user/errors.py} $out/user/errors.py
+    install -D -m 0644 ${./user/commands/__init__.py} $out/user/commands/__init__.py
+    install -D -m 0644 ${./user/commands/CleanCommand.py} $out/user/commands/CleanCommand.py
+    install -D -m 0644 ${./user/commands/ConsoleCommand.py} $out/user/commands/ConsoleCommand.py
+    install -D -m 0644 ${./user/commands/ExchangeFilesCommand.py} $out/user/commands/ExchangeFilesCommand.py
+    install -D -m 0644 ${./user/commands/ListCommand.py} $out/user/commands/ListCommand.py
+    install -D -m 0644 ${./user/commands/ResolutionCommand.py} $out/user/commands/ResolutionCommand.py
+    install -D -m 0644 ${./user/commands/ScreensCommand.py} $out/user/commands/ScreensCommand.py
+    install -D -m 0644 ${./user/commands/SealCommand.py} $out/user/commands/SealCommand.py
+    install -D -m 0644 ${./user/commands/SendCommand.py} $out/user/commands/SendCommand.py
+    install -D -m 0644 ${./user/commands/StartCommand.py} $out/user/commands/StartCommand.py
+    install -D -m 0644 ${./user/commands/TemplateCommand.py} $out/user/commands/TemplateCommand.py
+    install -D -m 0644 ${./user/commands/TransfersCommand.py} $out/user/commands/TransfersCommand.py
+    install -D -m 0644 ${./user/commands/VirtioFilesCommand.py} $out/user/commands/VirtioFilesCommand.py
   '';
   bastion = pkgs.writeShellScriptBin command ''
     exec ${python}/bin/python3 ${program}/bastion.py ${settings} "$@"

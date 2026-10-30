@@ -1,6 +1,3 @@
-# /etc/nixos/modules/host/desktop.nix
-# Desktop: KDE Plasma 6 with the SDDM login screen, and Firefox.
-
 { config, pkgs, ... }:
 
 {

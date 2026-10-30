@@ -40,7 +40,7 @@ in
   boot.kernelParams = [ "vfio-pci.ids=0000:0000,0000:0000" ];
 
   # The country whose radio rules the Wi-Fi VM follows
-  # (modules/isolation/net.nix).
+  # (modules/service-vms/wifi-vm.nix).
   microvm.vms.${hostNetworks.vms.wifi-vm}.config = {
     boot.extraModprobeConfig = "options cfg80211 ieee80211_regdom=COUNTRY";
   };
