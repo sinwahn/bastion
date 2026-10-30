@@ -12,6 +12,7 @@ from model.RerouteSentences import RerouteSentences
 class Configuration:
     """The settings bastion.nix hands over: every name and value the tool uses that is not read from the host or libvirt."""
     command: str = ""
+    interpreter: str = ""
     entry: str = ""
     settings_file: str = ""
     uri: str = ""

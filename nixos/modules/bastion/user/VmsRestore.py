@@ -1,6 +1,7 @@
 from model.LiveDataWriting import LiveDataWriting
 from model.NetworksCopy import NetworksCopy
 from model.StateReading import StateReading
+from model.errors import FileNotDone, LibvirtNotDone
 from system.PrivilegedSteps import StepCall
 from system.errors import FileFailed, LibvirtCallFailed, StepFailed
 from user.AppliedLine import AppliedLine
@@ -27,11 +28,11 @@ class VmsRestore:
 
     async def run(self):
         try:
-            state = StateReading(self.access).read()
-        except LibvirtCallFailed as error:
+            self.state = StateReading(self.access).read()
+        except LibvirtNotDone as error:
             self.screen.say(f"libvirt cannot be read: {error}")
             return
-        defined = {vm.name for vm in state.vms}
+        defined = {vm.name for vm in self.state.vms}
         saved = self.access.copy_folder.saved_names()
         here = [name for name in saved if name in defined]
         sealed = self.access.templates.sealed_names()
@@ -40,23 +41,15 @@ class VmsRestore:
         if not offered:
             self.screen.say("no saved VM to restore" + (f"\n{left}" if left else ""))
             return
-        picked = await self._ask(offered, left)
-        if not picked:
+        await self._ask(offered, left)
+        if not self.picked:
             return
-        lines, restored = [], []
-        for name in sorted(picked):
-            if self.whole and self.access.copy_folder.has_state(name):
-                lines.append(self._restore_whole(name, restored))
-            else:
-                lines.append(self._restore_definition(name, restored))
-        if restored:
-            lines += self._restore_stations(restored)
-        self.screen.say("\n".join(lines))
+        self._restore_picked()
+        self.screen.say("\n".join(self.lines))
         self.screen.action_read()
         CopyNotice(self.screen.app, self.access).write()
 
     async def _ask(self, offered, left):
-        """The VMs picked, whole noted when that kind is picked; none when a question is left."""
         has_state = {name: self.access.copy_folder.has_state(name) for name in offered}
         picks = Question(title=f"Restore: the VMs saved in {self.access.configuration.copy_folder} that are not defined now",
                          choices=[Choice(name, f"{name}, with saved firmware and TPM" if has_state[name] else f"{name}, definition only saved")
@@ -64,64 +57,71 @@ class VmsRestore:
                          meaning=(f"{left}\n" if left else "") + "space or Enter picks and unpicks, ctrl+s goes on")
         picked = await self.screen.app.push_screen_wait(PicksScreen(picks, ()))
         if not picked:
-            return []
+            return
         kind = await self.screen.app.push_screen_wait(QuestionScreen(Question(title="Which kind of restore?", choices=[
             Choice("definitions", "definitions only (fresh firmware and TPM)"),
             Choice("whole", "whole (with the saved firmware and TPM)", not any(has_state[name] for name in picked))])))
         if not kind:
-            return []
+            return
         self.whole = kind == "whole"
-        return picked
+        self.picked = picked
 
-    def _restore_whole(self, name, restored):
+    def _restore_picked(self):
+        self.lines = []
+        self.restored = []
+        for name in sorted(self.picked):
+            self._restore(name)
+        if self.restored:
+            self._restore_stations()
+
+    def _restore(self, name):
         folder = self.access.copy_folder
+        whole = self.whole and folder.has_state(name)
         try:
-            uuid = folder.saved_uuid(folder.saved_definition(name))
-        except FileFailed as error:
-            return f"{name}, not restored: {error}"
-        call = StepCall(step="state-copy", arguments=["restore", name, uuid],
-                        note=f"state-copy puts {name}'s firmware variables and TPM state back "
-                             "(sudo may ask your password) ...")
-        try:
-            ScreenSteps(self.screen.app, self.access.privileged_steps).run(call)
+            definition = folder.saved_definition(name)
+            uuid = folder.saved_uuid(definition)
+            if whole:
+                self._put_state_back(name, uuid)
+            self.state.libvirt.define(definition)
+        except (FileFailed, LibvirtCallFailed) as error:
+            self.lines.append(f"{name}, not restored: {error}")
+            return
         except StepFailed as failure:
             output = failure.answer.output
-            return f"{name}, not restored: {output.splitlines()[-1] if output else failure.code}"
-        return self._define(name, restored) or f"{name}, restored whole"
-
-    def _restore_definition(self, name, restored):
-        try:
-            self.access.copy_folder.saved_uuid(self.access.copy_folder.saved_definition(name))
-        except FileFailed as error:
-            return f"{name}, not restored: {error}"
-        return self._define(name, restored) or f"{name}, restored, definition only"
-
-    def _define(self, name, restored):
-        """Empty when name's saved definition is defined again; else the line that says why not."""
-        try:
-            self.access.libvirt.open().define(self.access.copy_folder.saved_definition(name))
-        except (LibvirtCallFailed, FileFailed) as error:
-            return f"{name}, not restored: {error}"
+            self.lines.append(f"{name}, not restored: {output.splitlines()[-1] if output else failure.code}")
+            return
         self.access.changes.add(name)
-        restored.append(name)
-        return ""
+        self.restored.append(name)
+        self.lines.append(f"{name}, restored whole" if whole else f"{name}, restored, definition only")
 
-    def _restore_stations(self, restored):
+    def _put_state_back(self, name, uuid):
+        call = StepCall()
+        call.step = "state-copy"
+        call.arguments = ["restore", name, uuid]
+        call.note = f"state-copy puts {name}'s firmware variables and TPM state back (sudo may ask your password) ..."
+        ScreenSteps(self.screen.app, self.access.privileged_steps).run(call)
+
+    def _restore_stations(self):
         try:
             saved = self.access.live_format.parse(self.access.copy_folder.saved_live_data())
             live = self.access.live_data_file.read()
-        except FileFailed as error:
-            return [f"no station taken from the copy: {error}"]
-        result = NetworksCopy().restored(live, saved, restored)
+        except (FileFailed, FileNotDone) as error:
+            self.lines.append(f"no station taken from the copy: {error}")
+            return
+        result = NetworksCopy().restored(live, saved, self.restored)
         if not result.stations:
-            return []
-        writing = LiveDataWriting(ScreenSteps(self.screen.app, self.access.privileged_steps), self.access)
-        applied = AppliedLine(writing).write(result.content)
-        lines = [f"stations added: {', '.join(result.stations)}"]
+            return
+        applied = AppliedLine(LiveDataWriting(ScreenSteps(self.screen.app, self.access.privileged_steps), self.access))
+        applied.write(result.content)
+        self.lines.append(f"stations added: {', '.join(result.stations)}")
         if result.networks:
-            lines.append(f"networks added: {', '.join(result.networks)}")
-        return lines + [applied]
+            self.lines.append(f"networks added: {', '.join(result.networks)}")
+        self.lines.append(applied.line())
 
     screen = None
     access = None
+    state = None
+    picked = ()
     whole = False
+    lines = ()
+    restored = ()

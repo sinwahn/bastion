@@ -2,6 +2,7 @@ from model.CacheBank import CacheBank
 from model.CpuSet import CpuSet
 from model.Gigabytes import Gigabytes
 from model.Host import Host
+from model.SystemFailures import SystemFailures
 from model.enums import ThreadKind
 
 
@@ -14,6 +15,10 @@ class HostReading:
         self.images_folder = images_folder
 
     def read(self):
+        with self.kFailures.raised_as_model():
+            return self._read()
+
+    def _read(self):
         host = Host()
         capabilities = self.libvirt.capabilities()
         siblings = self._siblings(capabilities)
@@ -58,3 +63,4 @@ class HostReading:
     libvirt = None
     files = None
     images_folder = ""
+    kFailures = SystemFailures()

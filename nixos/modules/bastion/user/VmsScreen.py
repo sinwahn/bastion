@@ -5,7 +5,7 @@ from textual.widgets import DataTable, Footer, Header, OptionList, Static
 from textual.widgets.option_list import Option
 
 from model.StateReading import StateReading
-from system.errors import LibvirtCallFailed
+from model.errors import LibvirtNotDone
 from user.CopyNotice import CopyNotice
 from user.FirmwareCopy import FirmwareCopy
 from user.NewVmQuestions import NewVmQuestions
@@ -35,15 +35,7 @@ class VmsScreen(Screen):
 
     def on_option_list_option_selected(self, event):
         if event.option_list.id == "actions":
-            {"copy": self.copy_state, "restore": self.restore}[event.option_id]()
-
-    @work(exclusive=True)
-    async def copy_state(self):
-        FirmwareCopy(self, self.access).run()
-
-    @work(exclusive=True)
-    async def restore(self):
-        await VmsRestore(self, self.access).run()
+            {"copy": self._copy_state, "restore": self._restore}[event.option_id]()
 
     def on_mount(self):
         self.sub_title = "VMs"
@@ -61,7 +53,7 @@ class VmsScreen(Screen):
                                                                 "network", "internet rule")])
         try:
             state = StateReading(self.access).read()
-        except LibvirtCallFailed as error:
+        except LibvirtNotDone as error:
             self.say(f"libvirt cannot be read: {error}")
             return
         lines = VmLines(state)
@@ -72,15 +64,24 @@ class VmsScreen(Screen):
         self.app.push_screen(VmScreen(self.access, event.row_key.value))
 
     def action_new(self):
-        self.new_vm()
+        self._new_vm()
 
     @work(exclusive=True)
-    async def new_vm(self):
+    async def _copy_state(self):
+        FirmwareCopy(self, self.access).run()
+
+    @work(exclusive=True)
+    async def _restore(self):
+        await VmsRestore(self, self.access).run()
+
+    @work(exclusive=True)
+    async def _new_vm(self):
         state = StateReading(self.access).read()
-        new_vm = await NewVmQuestions(self, self.access, state).ask()
-        if not new_vm.name:
+        questions = NewVmQuestions(self, self.access, state)
+        await questions.ask()
+        if not questions.answered().name:
             return
-        await VmMaking(self, self.access, state).make(new_vm)
+        await VmMaking(self, self.access, state).make(questions.answered())
         CopyNotice(self.app, self.access).write()
 
     access = None

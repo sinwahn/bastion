@@ -4,7 +4,8 @@ from model.Offers import Offers
 from model.StateReading import StateReading
 from model.StateVms import StateVms
 from model.enums import ThreadKind
-from system.errors import LibvirtCallFailed, ShellCommandFailed
+from model.errors import LibvirtNotDone
+from system.errors import ShellCommandFailed
 from user.ServiceLines import ServiceLines
 from user.UplinkStatus import UplinkStatus
 
@@ -20,7 +21,7 @@ class StatusReport:
         lines = []
         try:
             self._add_state(StateReading(self.access).read(), lines, wrong)
-        except LibvirtCallFailed as error:
+        except LibvirtNotDone as error:
             wrong.append(f"libvirt cannot be read ({error}): no VM can be shown or started. "
                          "Do: sudo systemctl start libvirtd")
         self._add_services(lines, wrong)

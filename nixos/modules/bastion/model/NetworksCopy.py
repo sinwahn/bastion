@@ -17,7 +17,8 @@ class NetworksCopy:
             if name in defined:
                 continue
             result.stations[name] = copy.deepcopy(station)
-            self._add_network(result, old, station.network)
+            if self._lacks(result, old, station.network):
+                self._add_network(result, old, station.network)
         return result
 
     def restored(self, live, saved, names):
@@ -33,13 +34,13 @@ class NetworksCopy:
             station = saved.stations[name]
             result.content.stations[name] = copy.deepcopy(station)
             result.stations.append(name)
-            if self._add_network(result.content, saved, station.network):
+            if self._lacks(result.content, saved, station.network):
+                self._add_network(result.content, saved, station.network)
                 result.networks.append(station.network)
         return result
 
+    def _lacks(self, content, source, network):
+        return network not in content.networks and network in source.networks
+
     def _add_network(self, content, source, network):
-        """True when network is added from source."""
-        if network in content.networks or network not in source.networks:
-            return False
         content.networks[network] = copy.deepcopy(source.networks[network])
-        return True

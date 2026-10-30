@@ -49,15 +49,7 @@ class StatusScreen(Screen):
 
     def action_read(self):
         self.query_one("#status", Static).update(PlainText.of("reading the host ..."))
-        self.read_status()
-
-    @work(thread=True, exclusive=True)
-    def read_status(self):
-        body = StatusReport(self.access).text()
-        self.app.call_from_thread(self.show, body)
-
-    def show(self, body):
-        self.query_one("#status", Static).update(PlainText.of(body))
+        self._read_status()
 
     def action_vms(self):
         self.app.push_screen(VmsScreen(self.access))
@@ -73,5 +65,13 @@ class StatusScreen(Screen):
 
     def action_broker(self):
         self.app.push_screen(BrokerScreen(self.access))
+
+    @work(thread=True, exclusive=True)
+    def _read_status(self):
+        body = StatusReport(self.access).text()
+        self.app.call_from_thread(self._show, body)
+
+    def _show(self, body):
+        self.query_one("#status", Static).update(PlainText.of(body))
 
     access = None

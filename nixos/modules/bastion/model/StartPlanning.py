@@ -40,7 +40,8 @@ class StartPlanning:
             plan.lines.append(f"No core is free for all its threads: it shares cores with {shared}.")
 
     def _free_vsock(self, vms):
-        """The lowest number from the settings' vsockFirst up that no running VM's live definition holds."""
+        # The lowest number from the settings' vsockFirst up that no running
+        # VM's live definition holds.
         held = {vm.live_vsock for vm in vms.running()}
         number = self.configuration.vsock_first
         while number in held:

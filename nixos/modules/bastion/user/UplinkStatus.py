@@ -71,7 +71,7 @@ class UplinkStatus:
         return f"{name}: {up}, {allowed}" + (", preferred" if name == preferred else "")
 
     def _route_line(self, uplink, route):
-        """The sentence of a cable's route (host-networks.nix)."""
+        # The sentence of a cable's route is host-networks.nix's.
         reroute = self.configuration.reroute
         sentence = reroute.through if route == "vm" else reroute.direct
         return sentence.format(cable=uplink.name, firewall=self.configuration.firewall_vm)

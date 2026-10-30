@@ -21,48 +21,52 @@ class PathCheck:
         self.name = name
         self.configuration = access.configuration
 
-    def text(self):
+    def read(self):
         self.state = StateReading(self.access).read()
         self.network = self.state.content.stations[self.name].network
         self.vlan_tag = self.state.content.networks[self.network].vlan_tag
         self.ports = self.access.switch_ports
         self.ports.read()
-        pieces = PathPieces()
-        services = PathServicePieces(self.access, pieces)
-        self._add_cable(pieces)
-        self._add_firewall_cables(pieces)
+        self.pieces = PathPieces()
+        services = PathServicePieces(self.access, self.pieces)
+        self._add_cable()
+        self._add_firewall_cables()
         services.add_service(self.configuration.firewall_vm)
         facts = self.access.firewall_check.read(self.name, 2 * self.configuration.internet_seconds)
         services.add_leg(self.name, self.network, facts)
-        self._add_other_cables(pieces)
+        self._add_other_cables()
         services.add_service(self.configuration.wifi_vm)
         services.add_wifi()
         services.add_internet(facts)
-        return pieces.text(self._tries(facts))
+        self.tries = self._tries(facts)
 
-    def _add_cable(self, pieces):
-        """The VM's cable: on the switch with its network's vlan tag untagged, against its station's network."""
+    def text(self):
+        return self.pieces.text(self.tries)
+
+    def _add_cable(self):
+        # The VM's cable: on the switch with its network's vlan tag untagged,
+        # against its station's network.
         name, network, switch = self.name, self.network, self.configuration.switch
         subject = f"{name}'s cable"
         vms = StateVms(self.state)
         if not vms.has(name):
-            pieces.add(subject, "not in libvirt's store",
-                       f"{subject}: not in libvirt's store: {name} has no VM, so it has no cable.")
+            self.pieces.add(subject, "not in libvirt's store",
+                            f"{subject}: not in libvirt's store: {name} has no VM, so it has no cable.")
             return
         vm = vms.vm(name)
         move = self._move(vm)
         again = f"Do: shut {name} down and start it again"
         if not vm.active:
-            pieces.add(subject, "off" + move, f"{subject}: off: {name} is off, so it has no cable. "
-                                              f"Do: start {name} in the VMs section")
+            self.pieces.add(subject, "off" + move, f"{subject}: off: {name} is off, so it has no cable. "
+                                                   f"Do: start {name} in the VMs section")
         elif self.ports.master(name) != switch:
             fact = f"running, not on {switch}" + move
-            pieces.add(subject, fact, f"{subject}: {fact}. {again}")
+            self.pieces.add(subject, fact, f"{subject}: {fact}. {again}")
         elif self.ports.untagged_vlan(name) == self.vlan_tag:
-            pieces.add_yes(subject, f"running, on {switch}, on its network {network}" + move)
+            self.pieces.add_yes(subject, f"running, on {switch}, on its network {network}" + move)
         else:
             fact = f"running, on {switch}, on {self._network_on(self.ports.untagged_vlan(name))}, its network is {network}" + move
-            pieces.add(subject, fact, f"{subject}: {fact}. {again}")
+            self.pieces.add(subject, fact, f"{subject}: {fact}. {again}")
 
     def _move(self, vm):
         target = CableEdit(self.configuration.switch).network_of(vm.root, self.state.content)
@@ -73,8 +77,9 @@ class PathCheck:
     def _network_on(self, vlan):
         return next((name for name, entry in self.state.content.networks.items() if entry.vlan_tag == vlan), "no network")
 
-    def _add_firewall_cables(self, pieces):
-        """firewall-vm's cable on the switch carries the VM's network: its vlan tag untagged for the switch's own network, else tagged."""
+    def _add_firewall_cables(self):
+        # firewall-vm's cable on the switch carries the VM's network: its vlan
+        # tag untagged for the switch's own network, else tagged.
         switch, network, vlan = self.configuration.switch, self.network, self.vlan_tag
         for cable in self.configuration.cables:
             if cable.switch != switch:
@@ -86,9 +91,9 @@ class PathCheck:
                 fact = f"does not carry {network}"
             else:
                 fact = ""
-            pieces.add(subject, fact or f"carries {network}", fact and f"{subject}: {fact}. {self.kApplyAgain}")
+            self.pieces.add(subject, fact or f"carries {network}", fact and f"{subject}: {fact}. {self.kApplyAgain}")
 
-    def _add_other_cables(self, pieces):
+    def _add_other_cables(self):
         others = {}
         for cable in self.configuration.cables:
             if cable.switch != self.configuration.switch:
@@ -97,10 +102,10 @@ class PathCheck:
             subject = " and ".join(names)
             missing = [name for name in names if self.ports.master(name) != switch]
             fact = f"not on {switch}: {', '.join(missing)}" if missing else ""
-            pieces.add(subject, fact or f"on {switch}", fact and f"{subject}: {fact}. {self.kApplyAgain}")
+            self.pieces.add(subject, fact or f"on {switch}", fact and f"{subject}: {fact}. {self.kApplyAgain}")
 
     def _tries(self, facts):
-        """The VM's last refused tries (firewall-check)."""
+        # The VM's last refused tries (firewall-check).
         name, firewall = self.name, self.configuration.firewall_vm
         if not facts.has_line and not facts.station_unknown:
             return [f"{name}'s last refused tries: cannot be read: {firewall} does not answer"]
@@ -115,4 +120,6 @@ class PathCheck:
     network = ""
     vlan_tag = 0
     ports = None
+    pieces = None
+    tries = ()
     kApplyAgain = "Do: sudo systemctl restart networks-apply.service"

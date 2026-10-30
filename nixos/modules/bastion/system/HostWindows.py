@@ -16,10 +16,10 @@ class HostWindows:
         self.shell.start_detached(command)
 
     def start_glass(self, command):
-        return self.shell.start_window(command)
+        self.shell.start_window(command)
 
-    def close_glass(self, window):
-        self.shell.stop_window(window)
+    def close_glass(self):
+        self.shell.stop_window()
 
     shell = None
     uri = ""

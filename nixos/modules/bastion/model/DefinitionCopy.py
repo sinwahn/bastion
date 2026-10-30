@@ -1,5 +1,5 @@
 from model.NetworksCopy import NetworksCopy
-from model.errors import CopyNotWritten, Refused
+from model.errors import CopyNotWritten, FileNotDone, Refused
 from system.errors import FileFailed, LibvirtCallFailed
 
 
@@ -22,7 +22,7 @@ class DefinitionCopy:
         changes.clear()
         try:
             self._write_files()
-        except (LibvirtCallFailed, FileFailed, Refused) as error:
+        except (LibvirtCallFailed, FileFailed) as error:
             raise CopyNotWritten(f"the copy in {self.access.configuration.copy_folder} is not written: {error}") from error
 
     def _write_files(self):
@@ -39,11 +39,12 @@ class DefinitionCopy:
             folder.write(name, body)
 
     def _live_data_copy(self, defined):
-        """The copy's networks.json text; empty when the live file cannot be read."""
+        # Empty when the live file cannot be read: the copy's networks.json is
+        # then left as it is.
         live_data_file = self.access.live_data_file
         try:
             live = live_data_file.read_checked()
-        except (FileFailed, Refused) as error:
+        except (FileNotDone, Refused) as error:
             self.access.log.note(f"the copy of networks.json is left as it is: {error}")
             return ""
         old = self.access.live_format.parse(self.access.copy_folder.saved_live_data_or_empty())

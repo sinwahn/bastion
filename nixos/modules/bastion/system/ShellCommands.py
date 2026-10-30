@@ -5,7 +5,7 @@ from system.errors import ShellCommandFailed
 
 
 class ShellCommands:
-    """Every program the tool runs on the host."""
+    """Every program the tool runs on the host, and the window and the sleep hold it keeps running."""
 
     def __init__(self, log):
         self.log = log
@@ -47,30 +47,34 @@ class ShellCommands:
                          stderr=subprocess.DEVNULL, start_new_session=True)
 
     def start_window(self, command):
-        return subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL)
+        self.window = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
 
-    def stop_window(self, process):
-        process.terminate()
+    def stop_window(self):
+        self.window.terminate()
 
     def start_hold(self, command):
-        return subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+        self.hold = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
 
-    def release_hold(self, process):
-        process.stdin.close()
-        process.wait()
+    def release_hold(self):
+        self.hold.stdin.close()
+        self.hold.wait()
 
     def run_attached(self, command):
-        return subprocess.run(command, text=True).returncode
+        self.finished = subprocess.run(command, text=True)
 
     def run_attached_feeding(self, command, sent):
-        return subprocess.run(command, input=sent, text=True).returncode
+        self.finished = subprocess.run(command, input=sent, text=True)
 
     def run_captured(self, command):
-        return subprocess.run(command, text=True, capture_output=True)
+        self.finished = subprocess.run(command, text=True, capture_output=True)
 
     def run_captured_feeding(self, command, sent):
-        return subprocess.run(command, input=sent, text=True, capture_output=True)
+        self.finished = subprocess.run(command, input=sent, text=True, capture_output=True)
+
+    def finished_run(self):
+        """The last run of run_attached, run_captured and their feeding forms."""
+        return self.finished
 
     def _printed_lines(self, expired):
         printed = expired.stdout or b""
@@ -79,3 +83,6 @@ class ShellCommands:
         return printed.splitlines()
 
     log = None
+    finished = None
+    window = None
+    hold = None

@@ -1,4 +1,4 @@
-from system.errors import StepFailed
+from model.errors import LiveDataNotApplied
 
 
 class AppliedLine:
@@ -9,8 +9,14 @@ class AppliedLine:
 
     def write(self, content):
         try:
-            return "saved and applied: " + self.writing.write(content)
-        except StepFailed as failure:
-            return "not applied: " + failure.answer.output
+            self.writing.write(content)
+        except LiveDataNotApplied as failure:
+            self.text = "not applied: " + str(failure)
+            return
+        self.text = "saved and applied: " + self.writing.answer()
+
+    def line(self):
+        return self.text
 
     writing = None
+    text = ""

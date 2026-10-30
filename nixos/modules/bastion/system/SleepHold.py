@@ -10,11 +10,9 @@ class SleepHold:
         self.shell = shell
 
     def take(self, name):
-        self.process = self.shell.start_hold(
-            ["systemd-inhibit", "--what=sleep:idle", f"--who={name}", f"--why={name} runs", "cat"])
+        self.shell.start_hold(["systemd-inhibit", "--what=sleep:idle", f"--who={name}", f"--why={name} runs", "cat"])
 
     def release(self):
-        self.shell.release_hold(self.process)
+        self.shell.release_hold()
 
     shell = None
-    process = None

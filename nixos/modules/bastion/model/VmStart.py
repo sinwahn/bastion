@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from model.CableEdit import CableEdit
 from model.DefinitionEdit import DefinitionEdit
 from model.DefinitionFragments import DefinitionFragments
+from model.SystemFailures import SystemFailures
 
 
 class VmStart:
@@ -19,6 +20,10 @@ class VmStart:
         self.switch = switch
 
     def start(self, name, plan, start):
+        with self.kFailures.raised_as_model():
+            self._start(name, plan, start)
+
+    def _start(self, name, plan, start):
         before = self.libvirt.definition_text(name)
         root = ET.fromstring(before)
         edit = DefinitionEdit(self.threads)
@@ -35,3 +40,4 @@ class VmStart:
     threads = None
     switch = ""
     kFragments = DefinitionFragments()
+    kFailures = SystemFailures()

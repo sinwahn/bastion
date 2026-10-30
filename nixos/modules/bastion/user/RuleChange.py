@@ -43,8 +43,9 @@ class RuleChange:
         if answer.rule == QuestionScreen.kBack:
             return
         StationEdit(self.access.configuration.exchange.sends_to).set_rule(station, answer.rule, answer.names)
-        writing = LiveDataWriting(ScreenSteps(self.screen.app, self.access.privileged_steps), self.access)
-        self.screen.say(AppliedLine(writing).write(content))
+        applied = AppliedLine(LiveDataWriting(ScreenSteps(self.screen.app, self.access.privileged_steps), self.access))
+        applied.write(content)
+        self.screen.say(applied.line())
 
     screen = None
     access = None

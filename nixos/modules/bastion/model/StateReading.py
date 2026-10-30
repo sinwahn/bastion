@@ -1,9 +1,9 @@
 from model.GraphicsDevicesReading import GraphicsDevicesReading
 from model.HostReading import HostReading
 from model.State import State
+from model.SystemFailures import SystemFailures
 from model.VmReading import VmReading
-from model.errors import Refused
-from system.errors import FileFailed
+from model.errors import FileNotDone, Refused
 
 
 class StateReading:
@@ -13,6 +13,10 @@ class StateReading:
         self.access = access
 
     def read(self):
+        with self.kFailures.raised_as_model():
+            return self._read()
+
+    def _read(self):
         state = State()
         state.libvirt = self.access.libvirt.open()
         state.host = HostReading(state.libvirt, self.access.files, self.access.configuration.images_folder).read()
@@ -28,9 +32,14 @@ class StateReading:
         live_data_file = self.access.live_data_file
         try:
             state.content = live_data_file.read_checked()
-        except (FileFailed, Refused) as error:
+        except Refused as refusal:
+            self.access.log.note(f"the live data file holds a refused value: {refusal}; the screens show it empty")
+            state.content = live_data_file.empty()
+            state.failure = live_data_file.refused_failure(refusal)
+        except FileNotDone as error:
             self.access.log.note(f"the live data file cannot be read: {error}; the screens show it empty")
             state.content = live_data_file.empty()
-            state.failure = live_data_file.failure_of(error)
+            state.failure = live_data_file.unreadable_failure(error)
 
     access = None
+    kFailures = SystemFailures()

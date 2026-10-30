@@ -1,3 +1,4 @@
+from model.SystemFailures import SystemFailures
 from model.glass_options.KeyOption import KeyOption
 from model.glass_options.YesNoOption import YesNoOption
 
@@ -12,13 +13,17 @@ class GlassSettings:
     def labels(self):
         return list(self.kOptions)
 
+    def has(self, label):
+        return label in self.kOptions
+
     def option(self, label):
         return self.kOptions[label]
 
     def read(self):
         """The settings as the client reads them, {label: value}: the per-user file's line, else /etc's file's, else the client's default."""
-        system = self.system_file.options()
-        own = self.own_file.options()
+        with self.kFailures.raised_as_model():
+            system = self.system_file.options()
+            own = self.own_file.options()
         settings = {}
         for label, option in self.kOptions.items():
             section, name = option.section().lower(), option.option().lower()
@@ -28,8 +33,10 @@ class GlassSettings:
 
     def write(self, label, value):
         option = self.kOptions[label]
-        self.own_file.write_option(option.section(), option.option(), value)
+        with self.kFailures.raised_as_model():
+            self.own_file.write_option(option.section(), option.option(), value)
 
     system_file = None
     own_file = None
     kOptions = {"release key": KeyOption(), "full screen": YesNoOption()}
+    kFailures = SystemFailures()

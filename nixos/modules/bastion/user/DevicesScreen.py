@@ -3,7 +3,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from model.StateReading import StateReading
-from system.errors import LibvirtCallFailed
+from model.errors import LibvirtNotDone
 from user.HostLines import HostLines
 from user.PlainText import PlainText
 
@@ -30,7 +30,7 @@ class DevicesScreen(Screen):
             state = StateReading(self.access).read()
             lines = HostLines(state, self.access.configuration)
             body = "\n".join(lines.device(device) for device in state.devices) or "no graphics device found"
-        except LibvirtCallFailed as error:
+        except LibvirtNotDone as error:
             body = f"libvirt cannot be read: {error}"
         self.query_one("#devices", Static).update(PlainText.of(body))
 

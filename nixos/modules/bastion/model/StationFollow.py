@@ -2,7 +2,7 @@ from model.CableEdit import CableEdit
 from model.FollowOutcome import FollowOutcome
 from model.NetworkIps import NetworkIps
 from model.StationEdit import StationEdit
-from system.errors import StepFailed
+from model.errors import LiveDataNotApplied
 
 
 class StationFollow:
@@ -13,21 +13,25 @@ class StationFollow:
         self.access = access
 
     def follow(self, vm):
-        outcome = FollowOutcome()
+        self.result = FollowOutcome()
         if not vm.has_station:
-            return outcome
+            return
         content = self.access.live_data_file.read()
         target = CableEdit(self.access.configuration.switch).network_of(vm.root, content)
         if vm.name not in content.stations or not target or content.stations[vm.name].network == target:
-            return outcome
+            return
         self._move(content, vm.name, target)
-        outcome.moved = True
+        self.result.moved = True
         try:
-            outcome.output = self.writing.write(content)
-            outcome.applied = True
-        except StepFailed as failure:
-            outcome.output = failure.answer.output
-        return outcome
+            self.writing.write(content)
+        except LiveDataNotApplied as failure:
+            self.result.output = str(failure)
+            return
+        self.result.output = self.writing.answer()
+        self.result.applied = True
+
+    def outcome(self):
+        return self.result
 
     def _move(self, content, name, network):
         edit = StationEdit(self.access.configuration.exchange.sends_to)
@@ -36,3 +40,4 @@ class StationFollow:
 
     writing = None
     access = None
+    result = FollowOutcome()

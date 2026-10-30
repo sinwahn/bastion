@@ -74,7 +74,6 @@ class GlassClientFile:
         return max(ends, default=-1)
 
     def _section_lines(self, lines, section):
-        """The lines inside section that are not blank, by index."""
         inside = []
         section_now = self.kOutside
         for index, old in enumerate(lines):

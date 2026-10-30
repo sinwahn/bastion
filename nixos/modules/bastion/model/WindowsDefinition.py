@@ -1,3 +1,5 @@
+import xml.etree.ElementTree as ET
+
 from model.DefinitionFragments import DefinitionFragments
 
 
@@ -8,7 +10,10 @@ class WindowsDefinition:
         self.configuration = configuration
         self.threads = threads
 
-    def text(self, request):
+    def root(self, request):
+        return ET.fromstring(self._text(request))
+
+    def _text(self, request):
         return (self._opening(request) + self.kFragments.cputune(request.pins, self.threads)
                 + self._firmware(request) + self._devices(request) + self._closing(request))
 

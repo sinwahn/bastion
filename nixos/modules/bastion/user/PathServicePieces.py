@@ -109,7 +109,7 @@ class PathServicePieces:
         return next(service for service in self.configuration.service_vms if service.name == name)
 
     def _restart(self, name):
-        """An answer point that does not answer: its VM restarted."""
+        # An answer point that does not answer: its VM restarted.
         return f"Do: sudo systemctl restart {self._service(name).unit}"
 
     def _gate_wifi(self):

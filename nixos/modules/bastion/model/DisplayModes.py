@@ -43,42 +43,42 @@ class DisplayModes:
     # gnif/LGProtocol at 62b52724b63b6e179b8fb7e0c7c03e9a8b4e1636,
     # LookingGlass's repos/LGMP and repos/LGProtocol; the other paths are
     # LookingGlass's, idd/LGIdd/transport/lgmp/ for the C++ files.
-    #   9728 + udata, rounded up to 4: LGMP's header, 6 queue headers of 1600
-    #     bytes with it (LGMP lgmp/src/host.c 109-120, lgmp/src/headers.h 297 and
-    #     340, lgmp/include/lgmp/lgmp.h 30); udata the KVMFR records with the CPU
-    #     model's and the Windows edition's names (CLGMPHost.cpp 41-132).
-    #   192: the frame queue and its 2 owner queues, 2 messages of 32 bytes each,
-    #     every queue's ring 64-byte aligned (CLGMPFrameTransport.cpp 50-55 and
-    #     85-122; LGProtocol LGMPConfig.h 31; LGMP host.c 177-179 and 217-218,
-    #     headers.h 277).
-    #   1024: the pointer queue, 32 messages (CLGMPControl.cpp 36-41 and 54-60;
-    #     LGMPConfig.h 33).
-    #   896: 32 pointer positions of a KVMFRCursor, 28 bytes by its fields
-    #     (CLGMPControl.cpp 32-33 and 62-72; LGProtocol KVMFR.h 167-179), every
-    #     allocation rounded up to 4 (LGMP host.c 424-427 and 436-468).
-    #   3145812: 3 pointer shapes of 28 + 512 x 512 x 4 bytes (CLGMPControl.cpp
-    #     30-31 and 74-84, CLGMPControl.h 43).
-    #   196860: 3 colour transforms of 28 + 65592 bytes, a KVMFRColorTransform's
-    #     flags, 3 x 4 matrix, scalar and 4096 x 4 table of 4-byte numbers
-    #     (CLGMPControl.cpp 86-98, CLGMPControl.h 44; LGProtocol KVMFRTypes.h
-    #     57 and 77-84).
-    #   128: the input queue, 4 messages (CLGMPInputTransport.cpp 44-49 and
-    #     102-109; LGMPConfig.h 34).
-    #   133120: 8 input streams of 256 + 128 x 128 bytes, each 64-byte aligned
-    #     (CLGMPInputTransport.cpp 111-129, CLGMPInputTransport.h 77-78;
-    #     LGProtocol KVMFRInput.h 30-32; LGMP lgmp/src/stream.c 154-173 and 704,
-    #     lgmp/src/stream.h 30, 110 and 114).
-    #   1792: 4 input status blocks of 448 bytes (CLGMPInputTransport.cpp 132-142,
-    #     CLGMPInputTransport.h 76; LGProtocol KVMFRInput.h 193).
-    #   1024: the clipboard queue, 32 messages (CLGMPClipboardTransport.cpp 52-57
-    #     and 151-158; LGMPConfig.h 35).
-    #   768: 4 clipboard status blocks of 128 bytes and 4 messages of 64
-    #     (CLGMPClipboardTransport.cpp 160-174, CLGMPClipboardTransport.h 44-45;
-    #     LGProtocol KVMFRClipboard.h 29, 355 and 363).
-    #   2098688: 2 clipboard streams of 256 + 4 x 262272 bytes, 64 + 262208
-    #     rounded up to 64 (CLGMPClipboardTransport.cpp 202-235,
-    #     CLGMPClipboardTransport.h 56-57; LGProtocol KVMFRClipboard.h 29 and 42;
-    #     LGMP stream.c 154-173).
+    # - 9728 + udata, rounded up to 4: LGMP's header, 6 queue headers of 1600
+    #   bytes with it (LGMP lgmp/src/host.c 109-120, lgmp/src/headers.h 297 and
+    #   340, lgmp/include/lgmp/lgmp.h 30); udata the KVMFR records with the CPU
+    #   model's and the Windows edition's names (CLGMPHost.cpp 41-132).
+    # - 192: the frame queue and its 2 owner queues, 2 messages of 32 bytes
+    #   each, every queue's ring 64-byte aligned (CLGMPFrameTransport.cpp 50-55
+    #   and 85-122; LGProtocol LGMPConfig.h 31; LGMP host.c 177-179 and
+    #   217-218, headers.h 277).
+    # - 1024: the pointer queue, 32 messages (CLGMPControl.cpp 36-41 and 54-60;
+    #   LGMPConfig.h 33).
+    # - 896: 32 pointer positions of a KVMFRCursor, 28 bytes by its fields
+    #   (CLGMPControl.cpp 32-33 and 62-72; LGProtocol KVMFR.h 167-179), every
+    #   allocation rounded up to 4 (LGMP host.c 424-427 and 436-468).
+    # - 3145812: 3 pointer shapes of 28 + 512 x 512 x 4 bytes (CLGMPControl.cpp
+    #   30-31 and 74-84, CLGMPControl.h 43).
+    # - 196860: 3 colour transforms of 28 + 65592 bytes, a KVMFRColorTransform's
+    #   flags, 3 x 4 matrix, scalar and 4096 x 4 table of 4-byte numbers
+    #   (CLGMPControl.cpp 86-98, CLGMPControl.h 44; LGProtocol KVMFRTypes.h 57
+    #   and 77-84).
+    # - 128: the input queue, 4 messages (CLGMPInputTransport.cpp 44-49 and
+    #   102-109; LGMPConfig.h 34).
+    # - 133120: 8 input streams of 256 + 128 x 128 bytes, each 64-byte aligned
+    #   (CLGMPInputTransport.cpp 111-129, CLGMPInputTransport.h 77-78;
+    #   LGProtocol KVMFRInput.h 30-32; LGMP lgmp/src/stream.c 154-173 and 704,
+    #   lgmp/src/stream.h 30, 110 and 114).
+    # - 1792: 4 input status blocks of 448 bytes (CLGMPInputTransport.cpp
+    #   132-142, CLGMPInputTransport.h 76; LGProtocol KVMFRInput.h 193).
+    # - 1024: the clipboard queue, 32 messages (CLGMPClipboardTransport.cpp
+    #   52-57 and 151-158; LGMPConfig.h 35).
+    # - 768: 4 clipboard status blocks of 128 bytes and 4 messages of 64
+    #   (CLGMPClipboardTransport.cpp 160-174, CLGMPClipboardTransport.h 44-45;
+    #   LGProtocol KVMFRClipboard.h 29, 355 and 363).
+    # - 2098688: 2 clipboard streams of 256 + 4 x 262272 bytes, 64 + 262208
+    #   rounded up to 64 (CLGMPClipboardTransport.cpp 202-235,
+    #   CLGMPClipboardTransport.h 56-57; LGProtocol KVMFRClipboard.h 29 and 42;
+    #   LGMP stream.c 154-173).
     # Together 5590080 + udata, which stays far below 46016 bytes, so the
     # start is 86 x 65536 = 5636096 for this driver build, the one
     # presets/win/README.txt names (build B7-829-cdba29f2).
