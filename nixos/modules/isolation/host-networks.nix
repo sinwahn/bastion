@@ -1,155 +1,156 @@
-# /etc/nixos/modules/isolation/host-networks.nix
 # The names of the host's own networks, what a service VM's stop means, the
 # URL gate checks the internet with and the seconds it waits for it (gate
 # status waits that long for wifi-vm's answer too), and the paths and words
 # of the exchange of files between the VMs, each written once here. Not a
-# module: host.nix, net.nix, gateway.nix, broker.nix and bastion.nix read
-# it; bastion.nix hands the exchange group to the bastion tool and writes it
-# as JSON under /etc, and the presets module of the exchange reads its
-# share of it from the stick.
+# module: the modules and bastion.nix read it; bastion.nix hands the
+# exchange group to the bastion tool and writes it as JSON under /etc, and
+# the presets module of the exchange reads its share of it from the stick.
 # Each key is the thing's role and never changes; its value is the name the
 # thing carries now. A rename changes the value only, and a rebuild.
-#   switches  the host's two bridges: the one the workstations, the firewall
-#             VM and the host sit on; the one only between the firewall VM
-#             and the Wi-Fi VM.
-#   vms       the three service VMs (microVMs): the one that holds the Wi-Fi
-#             card; the one that decides what each workstation may reach;
-#             the one that owns the exchange of files between the VMs.
-#   meanings  what it means when a service VM is not running, by its key in
-#             vms; gate status and the bastion tool show it beside the VM.
-#   cables    the service VMs' cables: the firewall VM's on the workstations'
-#             switch; the firewall VM's toward the Wi-Fi VM; the Wi-Fi VM's
-#             toward the firewall VM. Each with
-#     name    its name on the host, the name of the tap microvm.nix makes
-#             before its VM starts, and its qemu id;
-#     switch  the switch it goes on, by its key in switches; networks-apply
-#             (host.nix) puts it there.
-#   wifi-card the Wi-Fi card inside the Wi-Fi VM: net.nix names it by its
-#             driver (uplinks.nix), and the VM's saved Wi-Fi networks are
-#             bound to this name.
-#   reroute   the sentences of a cable's route (uplinks.nix): gate reroute
-#             prints the new one, gate status and the bastion tool show the
-#             one of now; each a format whose fields in braces are the names
-#             they carry: {cable} the cable's entry in uplinks.nix,
-#             {firewall} the firewall VM's name:
-#     through   its card is the Wi-Fi VM's, the way out of the host and of
-#               every VM;
-#     direct    its card is the host's alone.
-#   internet  the URL gate status fetches for its line "internet: yes" or
-#             "no"; the bastion tool reads the same, and firewall-check
-#             (gateway.nix) fetches it inside firewall-vm for the path check.
-#   internet-wait  the seconds gate status, the bastion tool and
-#             firewall-check wait for an answer from internet; gate status
-#             waits that long for wifi-vm's answer too, the path check that
-#             long for wifi-check's and twice that for firewall-check's, and
-#             networks-write (bastion.nix) that long for firewall-apply's.
-#   networks.json  the live data file on the host: every network and every
-#             station on it with its address and internet rule; networks-apply
-#             (host.nix) writes it from stations.nix when it is missing and
-#             builds the guard from it; firewall-vm and broker-vm read its
-#             folder through a read-only share (gateway.nix, broker.nix).
-#   exchange  the exchange of files between the VMs through broker-vm
-#             (broker.nix):
-#     staging   the host's folder for a file during its send;
-#     inbox     the host's own inbox;
-#     key       the host's key for the VMs' exchange accounts; its public
-#               half goes into the folder of networks.json under the key's
-#               file name and .pub;
-#     sends-to  the key of a station's list of destinations in
-#               networks.json;
-#     section   the name of the bastion tool's section of the exchange, as
-#               the status screen's keys line and the help name it;
-#     section-key  the key that opens that section on the status screen;
-#     sends-to-label  the label of a station's list of destinations in
-#               that section;
-#     none      what that section shows for an empty list;
-#     retired   the mark that section puts after a listed name whose VM is
-#               not defined now;
-#     verbs     the commands of the broker's program;
-#     log       the words of the program's journal lines, which bastion
-#               transfers shows the owner;
-#     reasons   the reason of each refusal; hash and delivery are the
-#               exchange step's own (bastion.nix), the reasons of a send
-#               stopped after the take: the hashes of the file on the host
-#               and of the kept copy differ, or the delivery failed;
-#     send      the bastion tool's command that sends one file from a VM's
-#               Outbox to another VM's Inbox or to the host's inbox;
-#     transfers the bastion tool's command that shows broker-vm's log, and
-#               the action of the broker section that shows it;
-#     clean     the bastion tool's command that deletes a VM's kept copies
-#               in broker-vm, and the files of the VM's stopped sends on
-#               the host, each logged first;
-#     step      the bastion tool's step that runs as root (bastion.nix):
-#               the sends, the Outbox listing, the log, the clean and the
-#               figures of the kept copies;
-#     send-action  the action of the broker section that sends a file;
-#     clean-action  the action of the broker section that deletes a VM's
-#               kept copies, and the files of its stopped sends on the host;
-#     failed    the folder inside staging that keeps the files of the sends
-#               stopped after the take, each sender's in a folder named
-#               after the sender;
-#     lines     the sentences the bastion tool prints for the exchange, each
-#               a format whose fields in braces are the names they carry:
-#               {from} the sender, {to} the destination, {vm} a VM, {file}
-#               the file's name, {bytes} its size, {sha256} its hash,
-#               {kept} the kept copy's path in broker-vm, {path} the
-#               delivered file's path, {reason} broker-vm's reason,
-#               {broker} broker-vm's name, {command} the bastion tool's
-#               command, {module} the presets module's word, {clean} the
-#               clean command's word, {used}, {size} and {limit} the kept
-#               copies' bytes, their volume's size and the limit, in GB,
-#               {percent} the limit's share of the size, {count} the number
-#               of files deleted:
-#       may     broker-vm allows the send;
-#       taken   the file is taken from the sender, with its size and hash;
-#       kept    where broker-vm keeps its copy;
-#       delivered  where the file arrived;
-#       refused  broker-vm refused the send; nothing was taken;
-#       not-running  a VM of the send is not running;
-#       outside  a VM of the send was started outside the bastion tool and
-#               has no exchange device;
-#       no-answer  a VM of the send does not answer on its exchange;
-#       full    the kept copies reach the limit; nothing is taken;
-#       usage   broker-vm's line in the broker section: its kept copies,
-#               their volume's size and the limit;
-#       cleaned  broker-vm's clean of a VM: its kept copies deleted, their
-#               count and bytes;
-#       failed-cleaned  the files of a VM's stopped sends deleted on the
-#               host, when there was at least one;
-#     exchange-files  the bastion tool's command that copies the files of
-#               the exchange's setup inside Windows into a folder;
-#               presets/attach.sh reads it from the JSON copy of this group
-#               bastion.nix writes under /etc, and puts the folder onto the
-#               PRESETS stick;
-#     module    the presets module that sets the exchange up inside each
-#               Windows VM: the part of its file name
-#               presets/win/modules/97-exchange.ps1 after the number, the
-#               word run.cmd runs it by, and the stick's folder win\ of its
-#               files; a rename changes the module's file name too;
-#     account   the local account in each Windows VM, which only the host's
-#               key logs into, SFTP only;
-#     folder    the exchange's folder in each Windows VM, the account's
-#               chroot;
-#     inbox-folder  the folder inside it where the files sent to the VM
-#               arrive;
-#     outbox-folder  the folder inside it the VM's files are sent from;
-#     bridge-folder  where the module puts vstbridge.exe, the place its
-#               README names;
-#     module-lines  the sentences the module prints, each a format whose
-#               fields in braces are the names they carry: {command} the
-#               bastion tool's command, {module} the module's word,
-#               {service} the bridge's service, {state} the word Windows
-#               reports, {version} sshd.exe's version, {account} the
-#               account, {folder} the folder, {inbox} and {outbox} the
-#               whole paths of the two folders inside it:
-#       no-device  the VM has no exchange device (a VM started outside the
-#               tool, or a template); the module ends;
-#       no-capability  OpenSSH Server could not be added; the module ends;
-#       driver  the state of the vsock device;
-#       bridge  the state of the bridge's service;
-#       sshd    the state of sshd and its version;
-#       account  the account;
-#       folders  the three folders.
+# switches: the host's two bridges: the one the workstations, the firewall
+#   VM and the host sit on; the one only between the firewall VM and the
+#   Wi-Fi VM.
+# vms: the three service VMs (microVMs): the one that holds the Wi-Fi card;
+#   the one that decides what each workstation may reach; the one that owns
+#   the exchange of files between the VMs.
+# meanings: what it means when a service VM is not running, by its key in
+#   vms; gate status and the bastion tool show it beside the VM.
+# cables: the service VMs' cables: the firewall VM's on the workstations'
+#   switch; the firewall VM's toward the Wi-Fi VM; the Wi-Fi VM's toward the
+#   firewall VM. Each with:
+# cables, name: its name on the host, the name of the tap microvm.nix makes
+#   before its VM starts, and its qemu id;
+# cables, switch: the switch it goes on, by its key in switches;
+#   networks-apply (modules/networks/networks-apply.nix) puts it there.
+# wifi-card: the Wi-Fi card inside the Wi-Fi VM: modules/service-vms/
+#   wifi-vm.nix names it by its driver (uplinks.nix), and the VM's saved
+#   Wi-Fi networks are bound to this name.
+# reroute: the sentences of a cable's route (uplinks.nix): gate reroute
+#   prints the new one, gate status and the bastion tool show the one of
+#   now; each a format whose fields in braces are the names they carry:
+#   {cable} the cable's entry in uplinks.nix, {firewall} the firewall VM's
+#   name:
+# reroute, through: its card is the Wi-Fi VM's, the way out of the host and
+#   of every VM;
+# reroute, direct: its card is the host's alone.
+# internet: the URL gate status fetches for its line "internet: yes" or
+#   "no"; the bastion tool reads the same, and firewall-check
+#   (modules/service-vms/firewall-rules.nix) fetches it inside firewall-vm
+#   for the path check.
+# internet-wait: the seconds gate status, the bastion tool and
+#   firewall-check wait for an answer from internet; gate status waits that
+#   long for wifi-vm's answer too, the path check that long for
+#   wifi-check's and twice that for firewall-check's, and networks-write
+#   (bastion.nix) that long for firewall-apply's.
+# networks.json: the live data file on the host: every network and every
+#   station on it with its address and internet rule; networks-apply writes
+#   it from stations.nix when it is missing and builds the guard from it;
+#   firewall-vm and broker-vm read its folder through a read-only share
+#   (modules/service-vms/service-vm.nix).
+# exchange: the exchange of files between the VMs through broker-vm
+#   (modules/broker/broker-vm.nix):
+# exchange, staging: the host's folder for a file during its send;
+# exchange, inbox: the host's own inbox;
+# exchange, key: the host's key for the VMs' exchange accounts; its public
+#   half goes into the folder of networks.json under the key's file name
+#   and .pub;
+# exchange, sends-to: the key of a station's list of destinations in
+#   networks.json;
+# exchange, section: the name of the bastion tool's section of the
+#   exchange, as the status screen's keys line and the help name it;
+# exchange, section-key: the key that opens that section on the status
+#   screen;
+# exchange, sends-to-label: the label of a station's list of destinations
+#   in that section;
+# exchange, none: what that section shows for an empty list;
+# exchange, retired: the mark that section puts after a listed name whose
+#   VM is not defined now;
+# exchange, verbs: the commands of the broker's program;
+# exchange, log: the words of the program's journal lines, which bastion
+#   transfers shows the owner;
+# exchange, reasons: the reason of each refusal; hash and delivery are the
+#   exchange step's own (bastion.nix), the reasons of a send stopped after
+#   the take: the hashes of the file on the host and of the kept copy
+#   differ, or the delivery failed;
+# exchange, send: the bastion tool's command that sends one file from a
+#   VM's Outbox to another VM's Inbox or to the host's inbox;
+# exchange, transfers: the bastion tool's command that shows broker-vm's
+#   log, and the action of the broker section that shows it;
+# exchange, clean: the bastion tool's command that deletes a VM's kept
+#   copies in broker-vm, and the files of the VM's stopped sends on the
+#   host, each logged first;
+# exchange, step: the bastion tool's step that runs as root (bastion.nix):
+#   the sends, the Outbox listing, the log, the clean and the figures of the
+#   kept copies;
+# exchange, send-action: the action of the broker section that sends a
+#   file;
+# exchange, clean-action: the action of the broker section that deletes a
+#   VM's kept copies, and the files of its stopped sends on the host;
+# exchange, failed: the folder inside staging that keeps the files of the
+#   sends stopped after the take, each sender's in a folder named after the
+#   sender;
+# exchange, lines: the sentences the bastion tool prints for the exchange,
+#   each a format whose fields in braces are the names they carry: {from}
+#   the sender, {to} the destination, {vm} a VM, {file} the file's name,
+#   {bytes} its size, {sha256} its hash, {kept} the kept copy's path in
+#   broker-vm, {path} the delivered file's path, {reason} broker-vm's
+#   reason, {broker} broker-vm's name, {command} the bastion tool's command,
+#   {module} the presets module's word, {clean} the clean command's word,
+#   {used}, {size} and {limit} the kept copies' bytes, their volume's size
+#   and the limit, in GB, {percent} the limit's share of the size, {count}
+#   the number of files deleted:
+# exchange, lines, may: broker-vm allows the send;
+# exchange, lines, taken: the file is taken from the sender, with its size
+#   and hash;
+# exchange, lines, kept: where broker-vm keeps its copy;
+# exchange, lines, delivered: where the file arrived;
+# exchange, lines, refused: broker-vm refused the send; nothing was taken;
+# exchange, lines, not-running: a VM of the send is not running;
+# exchange, lines, outside: a VM of the send was started outside the
+#   bastion tool and has no exchange device;
+# exchange, lines, no-answer: a VM of the send does not answer on its
+#   exchange;
+# exchange, lines, full: the kept copies reach the limit; nothing is taken;
+# exchange, lines, usage: broker-vm's line in the broker section: its kept
+#   copies, their volume's size and the limit;
+# exchange, lines, cleaned: broker-vm's clean of a VM: its kept copies
+#   deleted, their count and bytes;
+# exchange, lines, failed-cleaned: the files of a VM's stopped sends
+#   deleted on the host, when there was at least one;
+# exchange, exchange-files: the bastion tool's command that copies the
+#   files of the exchange's setup inside Windows into a folder;
+#   presets/attach.sh reads it from the JSON copy of this group bastion.nix
+#   writes under /etc, and puts the folder onto the PRESETS stick;
+# exchange, module: the presets module that sets the exchange up inside
+#   each Windows VM: the part of its file name
+#   presets/win/modules/97-exchange.ps1 after the number, the word run.cmd
+#   runs it by, and the stick's folder win\ of its files; a rename changes
+#   the module's file name too;
+# exchange, account: the local account in each Windows VM, which only the
+#   host's key logs into, SFTP only;
+# exchange, folder: the exchange's folder in each Windows VM, the account's
+#   chroot;
+# exchange, inbox-folder: the folder inside it where the files sent to the
+#   VM arrive;
+# exchange, outbox-folder: the folder inside it the VM's files are sent
+#   from;
+# exchange, bridge-folder: where the module puts vstbridge.exe, the place
+#   its README names;
+# exchange, module-lines: the sentences the module prints, each a format
+#   whose fields in braces are the names they carry: {command} the bastion
+#   tool's command, {module} the module's word, {service} the bridge's
+#   service, {state} the word Windows reports, {version} sshd.exe's version,
+#   {account} the account, {folder} the folder, {inbox} and {outbox} the
+#   whole paths of the two folders inside it:
+# exchange, module-lines, no-device: the VM has no exchange device (a VM
+#   started outside the tool, or a template); the module ends;
+# exchange, module-lines, no-capability: OpenSSH Server could not be added;
+#   the module ends;
+# exchange, module-lines, driver: the state of the vsock device;
+# exchange, module-lines, bridge: the state of the bridge's service;
+# exchange, module-lines, sshd: the state of sshd and its version;
+# exchange, module-lines, account: the account;
+# exchange, module-lines, folders: the three folders.
 {
   "networks.json" = "/var/lib/bastion/networks.json";
   wifi-card = "wifi-card";
